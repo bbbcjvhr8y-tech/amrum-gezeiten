@@ -2,80 +2,132 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gezeiten Amrum (Live BSH-Daten)</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 <style>
-  body {
-    font-family: system-ui, sans-serif;
-    max-width: 900px;
-    margin: 20px auto;
-    padding: 0 10px;
-    background: #f5f8fa;
+  :root {
+    --blau-dunkel: #0d3b5c;
+    --blau: #14507a;
+    --blau-hell: #2f7fb8;
+    --akzent-rot: #d1495b;
+    --akzent-gruen: #2a9d5c;
+    --bg: #eef3f8;
+    --card-bg: #ffffff;
   }
-  h1 { text-align: center; color: #14507a; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 16px 12px 40px;
+    background: linear-gradient(180deg, var(--bg) 0%, #dce8f2 100%);
+    color: #1c2b36;
+  }
+
+  h1 {
+    text-align: center;
+    color: var(--blau-dunkel);
+    font-size: clamp(1.3rem, 4vw, 2rem);
+    margin: 10px 0 20px;
+    letter-spacing: 0.5px;
+  }
+
   .switch-wrap {
     display: flex;
     justify-content: center;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
   }
+
   .switch-wrap button {
-    padding: 10px 20px;
-    border: 2px solid #14507a;
+    padding: 10px 22px;
+    border: 2px solid var(--blau);
     background: white;
-    color: #14507a;
-    border-radius: 20px;
+    color: var(--blau);
+    border-radius: 24px;
     cursor: pointer;
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+  }
+  .switch-wrap button:hover {
+    background: #eaf3fa;
   }
   .switch-wrap button.active {
-    background: #14507a;
+    background: var(--blau);
     color: white;
+    box-shadow: 0 2px 6px rgba(20,80,122,0.4);
   }
+
   #status {
     text-align: center;
-    margin-bottom: 15px;
-    color: #666;
+    margin-bottom: 12px;
+    color: #5a6b78;
     font-size: 0.9em;
     min-height: 20px;
   }
-  #status.error { color: #b30000; font-weight: bold; }
-  canvas {
-    background: white;
-    border-radius: 12px;
-    padding: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  #status.error { color: var(--akzent-rot); font-weight: bold; }
+
+  .chart-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 14px 10px 6px;
+    box-shadow: 0 4px 14px rgba(20,80,122,0.15);
+    position: relative;
   }
+
+  canvas#chart {
+    touch-action: none; /* wichtig: verhindert Scrollen beim Fingerziehen über den Chart */
+    max-width: 100%;
+  }
+
   table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 25px;
-    background: white;
-    border-radius: 12px;
+    background: var(--card-bg);
+    border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 14px rgba(20,80,122,0.12);
+    font-size: 0.95rem;
   }
   th, td {
     padding: 10px 8px;
     text-align: center;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid #eef1f4;
   }
   th {
-    background: #14507a;
+    background: var(--blau);
     color: white;
+    font-weight: 600;
   }
-  tr.hw td.art { color: #b30000; font-weight: bold; }
-  tr.nw td.art { color: #007a33; font-weight: bold; }
+  tr:hover td { background: #f4f9fd; }
+  tr.hw td.art { color: var(--akzent-rot); font-weight: bold; }
+  tr.nw td.art { color: var(--akzent-gruen); font-weight: bold; }
   .day-header {
     background: #eef4fa;
     font-weight: bold;
   }
+  .day-header td { color: var(--blau-dunkel); }
+
   footer {
     text-align: center;
-    color: #888;
-    font-size: 0.85em;
-    margin-top: 20px;
+    color: #8a97a3;
+    font-size: 0.82em;
+    margin-top: 22px;
+    line-height: 1.5;
+  }
+  footer a { color: var(--blau); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 480px) {
+    table { font-size: 0.85rem; }
+    th, td { padding: 8px 4px; }
   }
 </style>
 </head>
@@ -90,7 +142,9 @@
 
 <div id="status">Lade Daten…</div>
 
-<canvas id="chart" height="200"></canvas>
+<div class="chart-card">
+  <canvas id="chart" height="220"></canvas>
+</div>
 
 <table id="tabelle">
   <thead>
@@ -106,7 +160,7 @@
 </footer>
 
 <script>
-console.log("###### DATEI-VERSION: bereinigt, nur EINE ladeStationsdaten-Funktion ######");
+console.log("###### DATEI-VERSION: mit Crosshair + neuer Optik ######");
 
 /* ==========================================================
    HIER DIE ECHTEN STATIONS-IDs EINTRAGEN
@@ -121,6 +175,41 @@ let aktuelleStation = "hafen";
 let chart;
 let cacheHafen = null;
 let cacheOdde = null;
+
+/* ----------------------------------------------------------
+   NEU: Plugin für die gestrichelte vertikale Crosshair-Linie
+   Zeichnet eine Linie an der Stelle des aktuell "aktiven"
+   (per Maus/Finger angesteuerten) Datenpunkts.
+   ---------------------------------------------------------- */
+const crosshairPlugin = {
+  id: 'crosshairLine',
+  afterDraw(chartInstanz) {
+    const aktive = chartInstanz.tooltip?.getActiveElements?.() || chartInstanz.tooltip?._active;
+    if (aktive && aktive.length) {
+      const punkt = aktive[0];
+      const { ctx, chartArea } = chartInstanz;
+      const x = punkt.element.x;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([6, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(20,80,122,0.7)';
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+
+      // kleiner Punkt-Marker oben auf der Linie
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(x, punkt.element.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#14507a';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+};
+Chart.register(crosshairPlugin);
 
 function setStatus(text, isError = false) {
   const el = document.getElementById('status');
@@ -169,8 +258,14 @@ function formatZeit(d) {
 }
 
 function zeichneChart(daten, label) {
-  const ctx = document.getElementById('chart').getContext('2d');
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
   if (chart) chart.destroy();
+
+  // NEU: dezenter Verlauf unter der Linie statt flachem Farbklecks
+  const verlauf = ctx.createLinearGradient(0, 0, 0, canvas.height || 220);
+  verlauf.addColorStop(0, 'rgba(20,80,122,0.35)');
+  verlauf.addColorStop(1, 'rgba(20,80,122,0.02)');
 
   chart = new Chart(ctx, {
     type: 'line',
@@ -179,31 +274,62 @@ function zeichneChart(daten, label) {
         label: label,
         data: daten.map(p => ({ x: p.zeit, y: p.hoehe })),
         borderColor: '#14507a',
-        backgroundColor: 'rgba(20,80,122,0.15)',
+        borderWidth: 2.5,
+        backgroundColor: verlauf,
         fill: true,
         tension: 0.4,
         pointRadius: 5,
-        pointBackgroundColor: daten.map(p => p.art === 'HW' ? '#b30000' : '#007a33')
+        pointHoverRadius: 8,
+        pointBackgroundColor: daten.map(p => p.art === 'HW' ? '#d1495b' : '#2a9d5c'),
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
       }]
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+
+      // NEU: sorgt dafür, dass beim Ziehen (Maus ODER Finger)
+      // immer der nächstliegende Punkt entlang der x-Achse
+      // "eingerastet" wird — auch zwischen zwei Datenpunkten.
+      interaction: {
+        mode: 'index',
+        intersect: false,
+        axis: 'x'
+      },
+      hover: {
+        mode: 'index',
+        intersect: false
+      },
+
       scales: {
         x: {
           type: 'time',
           time: { unit: 'hour', displayFormats: { hour: 'dd.MM HH:mm' } },
-          title: { display: true, text: 'Datum / Uhrzeit' }
+          title: { display: true, text: 'Datum / Uhrzeit' },
+          grid: { color: 'rgba(0,0,0,0.05)' }
         },
         y: {
-          title: { display: true, text: 'Höhe (cm ü. Pegelnull)' }
+          title: { display: true, text: 'Höhe (cm ü. Pegelnull)' },
+          grid: { color: 'rgba(0,0,0,0.05)' }
         }
       },
       plugins: {
+        legend: { display: false },
         tooltip: {
+          backgroundColor: 'rgba(13,59,92,0.92)',
+          padding: 10,
+          titleFont: { size: 13 },
+          bodyFont: { size: 13 },
+          displayColors: false,
           callbacks: {
+            title: (items) => {
+              const p = daten[items[0].dataIndex];
+              return `${formatDatum(p.zeit)} · ${formatZeit(p.zeit)}`;
+            },
             label: (ctx) => {
               const p = daten[ctx.dataIndex];
-              return `${p.art === 'HW' ? 'Hochwasser' : 'Niedrigwasser'}: ${p.hoehe} cm`;
+              return `${p.art === 'HW' ? 'Hochwasser ⬆' : 'Niedrigwasser ⬇'}: ${p.hoehe} cm`;
             }
           }
         }
@@ -264,7 +390,7 @@ async function holeUndZeigeDaten(stationKey) {
     const in5Tagen = new Date(jetzt.getTime() + 5 * 24 * 60 * 60 * 1000);
     const gefiltert5Tage = daten.filter(p => p.zeit >= jetzt && p.zeit <= in5Tagen);
 
-// Für den CHART: heute + morgen
+    // Für den CHART: heute + morgen
     const heuteStart = new Date(jetzt);
     heuteStart.setHours(0, 0, 0, 0);
     const heuteEnde = new Date(jetzt);
@@ -284,7 +410,6 @@ async function holeUndZeigeDaten(stationKey) {
     setStatus(`Fehler beim Laden: ${err.message}`, true);
   }
 }
-
 
 document.getElementById('btnHafen').addEventListener('click', () => {
   aktuelleStation = 'hafen';
