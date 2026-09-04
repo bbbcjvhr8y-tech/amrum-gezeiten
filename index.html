@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gezeiten Amrum (Live BSH-Daten)</title>
+
+<!-- PWA: Manifest + Theme-Farbe + iOS-Unterstützung -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14507a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gezeiten Amrum">
+<link rel="apple-touch-icon" href="icon-192.png">
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 <style>
@@ -15,6 +24,29 @@
     --akzent-gruen: #2a9d5c;
     --bg: #eef3f8;
     --card-bg: #ffffff;
+    --text: #1c2b36;
+    --muted-text: #5a6b78;
+    --border-color: #eef1f4;
+  }
+
+  /* ============================================================
+     DARK MODE: greift automatisch, wenn das Handy/Betriebssystem
+     auf "Dunkel" eingestellt ist. Kein Umschalter nötig.
+     ============================================================ */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --blau-dunkel: #7fb8e0;
+      --blau: #2f7fb8;
+      --blau-hell: #5aa9dc;
+      --bg: #0f1720;
+      --card-bg: #16212c;
+      --text: #dbe6ef;
+      --muted-text: #93a3b0;
+      --border-color: rgba(255,255,255,0.08);
+    }
+    body { background: linear-gradient(180deg, #0f1720 0%, #0a121a 100%) !important; }
+    tr:hover td { background: rgba(255,255,255,0.03) !important; }
+    .day-header { background: rgba(255,255,255,0.05) !important; }
   }
 
   * { box-sizing: border-box; }
@@ -25,7 +57,7 @@
     margin: 0 auto;
     padding: 16px 12px 40px;
     background: linear-gradient(180deg, var(--bg) 0%, #dce8f2 100%);
-    color: #1c2b36;
+    color: var(--text);
   }
 
   h1 {
@@ -47,7 +79,7 @@
   .switch-wrap button {
     padding: 10px 22px;
     border: 2px solid var(--blau);
-    background: white;
+    background: var(--card-bg);
     color: var(--blau);
     border-radius: 24px;
     cursor: pointer;
@@ -55,9 +87,7 @@
     font-size: 0.95rem;
     transition: all 0.2s ease;
   }
-  .switch-wrap button:hover {
-    background: #eaf3fa;
-  }
+  .switch-wrap button:hover { background: rgba(20,80,122,0.08); }
   .switch-wrap button.active {
     background: var(--blau);
     color: white;
@@ -67,11 +97,48 @@
   #status {
     text-align: center;
     margin-bottom: 12px;
-    color: #5a6b78;
+    color: var(--muted-text);
     font-size: 0.9em;
     min-height: 20px;
   }
   #status.error { color: var(--akzent-rot); font-weight: bold; }
+
+  /* ============================================================
+     NEU: Live-Info-Leiste (Countdown zur nächsten Tide + Mondphase)
+     ============================================================ */
+  .live-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .info-box {
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 3px 10px rgba(20,80,122,0.12);
+    text-align: center;
+  }
+  .info-label {
+    font-size: 0.75rem;
+    color: var(--muted-text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .info-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--blau-dunkel);
+  }
+  .info-sub {
+    font-size: 0.8rem;
+    color: var(--muted-text);
+    margin-top: 3px;
+  }
+  @media (max-width: 480px) {
+    .live-info { grid-template-columns: 1fr; }
+  }
 
   .chart-card {
     background: var(--card-bg);
@@ -81,18 +148,14 @@
   }
 
   /* ============================================================
-     HIER die Höhe des Graphen einstellen!
-     Einfach den px-Wert ändern (z.B. 250px, 400px, ...).
-     Die Breite passt sich automatisch an den Bildschirm an.
+     Höhe des Graphen einstellen: einfach die px-Werte ändern
      ============================================================ */
   .chart-wrapper {
     position: relative;
-    height: 320px;   /* <-- HIER Höhe ändern */
+    height: 320px;
   }
   @media (max-width: 480px) {
-    .chart-wrapper {
-      height: 260px;  /* <-- HIER Höhe auf dem Handy ändern */
-    }
+    .chart-wrapper { height: 260px; }
   }
 
   #chart {
@@ -100,7 +163,46 @@
     top: 0; left: 0;
     width: 100% !important;
     height: 100% !important;
-    touch-action: none; /* wichtig: verhindert Scrollen beim Fingerziehen über den Chart */
+    touch-action: none;
+  }
+
+  /* NEU: Legende + Sicherheits-Hinweis unter dem Graph */
+  .chart-legende {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+    align-items: center;
+    font-size: 0.82rem;
+    color: var(--muted-text);
+    margin: 10px 4px 4px;
+  }
+  .legende-punkt {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .legende-hw { background: var(--akzent-rot); }
+  .legende-nw { background: var(--akzent-gruen); }
+  .legende-zone {
+    display: inline-block;
+    width: 22px; height: 10px;
+    background: rgba(42,157,92,0.35);
+    border-radius: 3px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .watt-hinweis {
+    font-size: 0.78rem;
+    color: var(--akzent-rot);
+    background: rgba(209,73,91,0.08);
+    border: 1px solid rgba(209,73,91,0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 10px 4px 4px;
+    line-height: 1.4;
   }
 
   table {
@@ -116,7 +218,7 @@
   th, td {
     padding: 10px 8px;
     text-align: center;
-    border-bottom: 1px solid #eef1f4;
+    border-bottom: 1px solid var(--border-color);
   }
   th {
     background: var(--blau);
@@ -131,10 +233,12 @@
     font-weight: bold;
   }
   .day-header td { color: var(--blau-dunkel); }
+  .hub-spring { color: var(--akzent-rot); font-weight: 600; }
+  .hub-nipp { color: var(--blau-hell); font-weight: 600; }
 
   footer {
     text-align: center;
-    color: #8a97a3;
+    color: var(--muted-text);
     font-size: 0.82em;
     margin-top: 22px;
     line-height: 1.5;
@@ -143,8 +247,8 @@
   footer a:hover { text-decoration: underline; }
 
   @media (max-width: 480px) {
-    table { font-size: 0.85rem; }
-    th, td { padding: 8px 4px; }
+    table { font-size: 0.82rem; }
+    th, td { padding: 8px 3px; }
   }
 </style>
 </head>
@@ -159,18 +263,49 @@
 
 <div id="status">Lade Daten…</div>
 
+<!-- NEU: Countdown zur nächsten Tide + Mondphase -->
+<div class="live-info">
+  <div class="info-box">
+    <div class="info-label">Nächste Tide</div>
+    <div class="info-value" id="infoNaechsteTide">–</div>
+    <div class="info-sub" id="infoNaechsteTideDetails"></div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Mondphase</div>
+    <div class="info-value" id="infoMondphase">–</div>
+    <div class="info-sub" id="infoMondDatum"></div>
+  </div>
+</div>
+
 <div class="chart-card">
   <div class="chart-wrapper">
     <canvas id="chart"></canvas>
+  </div>
+
+  <div class="chart-legende">
+    <span><span class="legende-punkt legende-hw"></span>Hochwasser</span>
+    <span><span class="legende-punkt legende-nw"></span>Niedrigwasser</span>
+    <span><span class="legende-zone"></span>Ungefähres Wattwander-Zeitfenster</span>
+  </div>
+  <div class="watt-hinweis">
+    ⚠️ Das grüne Zeitfenster ist nur eine <strong>rechnerische Orientierung</strong> (±2 Std. um
+    Niedrigwasser) und ersetzt <strong>keine</strong> offizielle Gezeitentabelle oder ortskundige
+    Wattführung! Wind, Wetter und Sturmflut können die tatsächliche Tide stark verschieben.
+    Bitte vor jeder Wattwanderung aktuelle, geprüfte Infos einholen (z. B. Kurverwaltung oder
+    zertifizierter Wattführer).
   </div>
 </div>
 
 <table id="tabelle">
   <thead>
-    <tr><th>Datum</th><th>Uhrzeit</th><th>Art</th><th>Höhe (cm ü. Pegelnull)</th></tr>
+    <tr><th>Datum</th><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th></tr>
   </thead>
   <tbody id="tabelleBody"></tbody>
 </table>
+<div class="chart-legende" style="margin-top:6px;">
+  <span>🔺 überdurchschnittlicher Tidenhub (ähnlich Springtide)</span>
+  <span>🔻 unterdurchschnittlicher Tidenhub (ähnlich Nipptide)</span>
+</div>
 
 <footer>
   Datenquelle: Bundesamt für Seeschifffahrt und Hydrographie (BSH) –
@@ -179,7 +314,7 @@
 </footer>
 
 <script>
-console.log("###### DATEI-VERSION: dichte Kurve = exakt gleiche Formel wie Crosshair ######");
+console.log("###### DATEI-VERSION: + Countdown, Wattzone, Tidenhub, Mondphase, PWA, Dark Mode ######");
 
 /* ==========================================================
    HIER DIE ECHTEN STATIONS-IDs EINTRAGEN
@@ -189,14 +324,22 @@ const STATION_ID_ODDE  = "amrum_odde";     // TODO: echte ID eintragen
 
 const PROXY_BASE = "/api/tide?id=";
 
+// Wie viele Stunden vor/nach Niedrigwasser gilt als "Wattwander-Fenster"?
+const WATT_FENSTER_STUNDEN = 2;
+
 let aktuelleStation = "hafen";
 let chart;
 let cacheHafen = null;
 let cacheOdde = null;
 
-// Die ECHTEN HW/NW-Punkte der gerade angezeigten Zeitspanne
-// (wird für Snapping & Crosshair-Berechnung gebraucht)
+// Die ECHTEN HW/NW-Punkte der gerade angezeigten Chart-Zeitspanne
 let echtePunkte = [];
+// ALLE echten Punkte (ungefiltert, für Countdown/Tidenhub-Suche)
+let volleDaten = [];
+
+// Für Neuzeichnen bei Dark-Mode-Wechsel
+let letzteChartDaten = null;
+let letzterChartLabel = null;
 
 // Aktueller Zustand der Crosshair-Linie (null = nicht sichtbar)
 let crosshairState = null;
@@ -209,14 +352,11 @@ function setStatus(text, isError = false) {
 
 async function ladeStationsdaten(stationId) {
   const url = PROXY_BASE + encodeURIComponent(stationId);
-  console.log("Rufe lokalen Proxy auf:", url);
-
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`API-Fehler (${response.status}) für Station ${stationId}`);
   }
-  const json = await response.json();
-  return json;
+  return await response.json();
 }
 
 function extrahiereHWNW(apiResponse) {
@@ -230,14 +370,34 @@ function extrahiereHWNW(apiResponse) {
       const hoehe = (e.forecast_value !== undefined && e.forecast_value !== null)
         ? e.forecast_value
         : e.tidal_prediction_value;
-      return {
-        zeit: zeit,
-        hoehe: hoehe,
-        art: e.event
-      };
+      return { zeit, hoehe, art: e.event };
     })
     .filter(e => e.hoehe !== undefined && e.hoehe !== null)
     .sort((a, b) => a.zeit - b.zeit);
+}
+
+/* ============================================================
+   NEU: Berechnet den Tidenhub (Differenz zur vorherigen Tide)
+   für jeden Punkt und markiert über-/unterdurchschnittliche
+   Werte (grobe Näherung für Spring-/Nipptide).
+   ============================================================ */
+function berechneTidenhub(daten) {
+  const hubs = [];
+  for (let i = 1; i < daten.length; i++) {
+    hubs.push(Math.abs(daten[i].hoehe - daten[i - 1].hoehe));
+  }
+  const durchschnitt = hubs.length ? hubs.reduce((a, b) => a + b, 0) / hubs.length : 0;
+
+  return daten.map((p, i) => {
+    if (i === 0) return { ...p, hub: null, hubTyp: null };
+    const hub = Math.abs(p.hoehe - daten[i - 1].hoehe);
+    let hubTyp = null;
+    if (durchschnitt > 0) {
+      if (hub > durchschnitt * 1.12) hubTyp = 'spring';
+      else if (hub < durchschnitt * 0.88) hubTyp = 'nipp';
+    }
+    return { ...p, hub, hubTyp };
+  });
 }
 
 function formatDatum(d) {
@@ -248,11 +408,78 @@ function formatZeit(d) {
 }
 
 /* ============================================================
+   NEU: Mondphase rein rechnerisch bestimmen (keine API nötig).
+   Basiert auf einem bekannten Referenz-Neumond + der Länge
+   des synodischen Monats. Näherung, kann ±1 Tag abweichen.
+   ============================================================ */
+function berechneMondphase(datum) {
+  const referenzNeumond = new Date('2000-01-06T18:14:00Z').getTime();
+  const synodischerMonatMs = 29.530588853 * 24 * 60 * 60 * 1000;
+  let diff = (datum.getTime() - referenzNeumond) % synodischerMonatMs;
+  if (diff < 0) diff += synodischerMonatMs;
+  const phase = diff / synodischerMonatMs;
+
+  const stufen = [
+    { max: 0.03, name: 'Neumond', icon: '🌑' },
+    { max: 0.22, name: 'zunehmende Sichel', icon: '🌒' },
+    { max: 0.28, name: 'zunehmender Halbmond', icon: '🌓' },
+    { max: 0.47, name: 'zun. Dreiviertelmond', icon: '🌔' },
+    { max: 0.53, name: 'Vollmond', icon: '🌕' },
+    { max: 0.72, name: 'abn. Dreiviertelmond', icon: '🌖' },
+    { max: 0.78, name: 'abnehmender Halbmond', icon: '🌗' },
+    { max: 0.97, name: 'abnehmende Sichel', icon: '🌘' },
+    { max: 1.01, name: 'Neumond', icon: '🌑' }
+  ];
+  const eintrag = stufen.find(s => phase <= s.max) || stufen[stufen.length - 1];
+  return { name: eintrag.name, icon: eintrag.icon };
+}
+
+function aktualisiereMondphase() {
+  const jetzt = new Date();
+  const mond = berechneMondphase(jetzt);
+  document.getElementById('infoMondphase').textContent = `${mond.icon} ${mond.name}`;
+  document.getElementById('infoMondDatum').textContent = jetzt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/* ============================================================
+   NEU: Countdown zur nächsten Tide (aus den ungefilterten
+   volleDaten, damit auch nachts kurz vor Mitternacht die
+   nächste Tide zuverlässig gefunden wird).
+   ============================================================ */
+function aktualisiereLiveInfo() {
+  if (!volleDaten.length) return;
+  const jetzt = new Date();
+
+  const naechste = volleDaten.find(p => p.zeit.getTime() > jetzt.getTime());
+  const wertEl = document.getElementById('infoNaechsteTide');
+  const detailEl = document.getElementById('infoNaechsteTideDetails');
+
+  if (!naechste) {
+    wertEl.textContent = 'Keine Daten';
+    detailEl.textContent = '';
+    return;
+  }
+
+  const diffMs = naechste.zeit.getTime() - jetzt.getTime();
+  const stunden = Math.floor(diffMs / (60 * 60 * 1000));
+  const minuten = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
+  const artText = naechste.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser';
+
+  wertEl.textContent = `${artText} in ${stunden} Std ${minuten} Min`;
+
+  let detailText = `${formatZeit(naechste.zeit)} Uhr · ${Math.round(naechste.hoehe)} cm`;
+  if (naechste.hub !== null && naechste.hub !== undefined) {
+    detailText += ` · Hub: ${Math.round(naechste.hub)} cm`;
+    if (naechste.hubTyp === 'spring') detailText += ' 🔺';
+    if (naechste.hubTyp === 'nipp') detailText += ' 🔻';
+  }
+  detailEl.textContent = detailText;
+}
+
+/* ============================================================
    Kosinus-Interpolation zwischen zwei echten Punkten.
-   WICHTIG: Diese Funktion wird jetzt an ZWEI Stellen benutzt:
-   1) um die dichte Kurve zu erzeugen, die Chart.js zeichnet
-   2) um den Crosshair-Wert an einer beliebigen Stelle zu berechnen
-   -> dadurch stimmen Kurve und Crosshair immer exakt überein!
+   Wird für die dichte Kurve UND für den Crosshair benutzt,
+   damit beides exakt übereinstimmt.
    ============================================================ */
 function kosinusWert(p1, p2, zeitMs) {
   const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
@@ -260,13 +487,6 @@ function kosinusWert(p1, p2, zeitMs) {
   return (p1.hoehe + p2.hoehe) / 2 + (p1.hoehe - p2.hoehe) / 2 * Math.cos(Math.PI * anteil);
 }
 
-/* ============================================================
-   Erzeugt aus den echten HW/NW-Punkten eine "dichte" Punktreihe
-   (alle X Minuten ein berechneter Zwischenwert). Diese dichte
-   Reihe wird Chart.js als Kurve übergeben (mit tension:0 -> 
-   gerade Linien zwischen den vielen dichten Punkten, was durch
-   die hohe Punktzahl trotzdem butterweich aussieht).
-   ============================================================ */
 function erzeugeDichteKurve(daten, schrittMinuten = 5) {
   if (daten.length < 2) {
     return daten.map(p => ({ zeit: p.zeit, hoehe: p.hoehe, art: p.art, echt: true }));
@@ -280,12 +500,7 @@ function erzeugeDichteKurve(daten, schrittMinuten = 5) {
 
     const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
     for (let t = t1 + schrittMs; t < t2; t += schrittMs) {
-      ergebnis.push({
-        zeit: new Date(t),
-        hoehe: kosinusWert(p1, p2, t),
-        art: null,
-        echt: false
-      });
+      ergebnis.push({ zeit: new Date(t), hoehe: kosinusWert(p1, p2, t), art: null, echt: false });
     }
   }
   const letzter = daten[daten.length - 1];
@@ -293,10 +508,6 @@ function erzeugeDichteKurve(daten, schrittMinuten = 5) {
   return ergebnis;
 }
 
-/* ============================================================
-   CROSSHAIR-LOGIK: berechnet Zeit + Höhe an einer beliebigen
-   Pixel-x-Position, mit Snapping auf echte Punkte in der Nähe.
-   ============================================================ */
 function berechneCrosshairInfo(chartInstanz, pixelX) {
   const daten = echtePunkte;
   if (!daten.length) return null;
@@ -310,18 +521,10 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
   const erstesP = daten[0], letztesP = daten[daten.length - 1];
 
   if (zeitWert <= erstesP.zeit.getTime()) {
-    return {
-      pixelX: xSkala.getPixelForValue(erstesP.zeit.getTime()),
-      pixelY: ySkala.getPixelForValue(erstesP.hoehe),
-      zeit: erstesP.zeit, hoehe: erstesP.hoehe, echt: true, art: erstesP.art
-    };
+    return { pixelX: xSkala.getPixelForValue(erstesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(erstesP.hoehe), zeit: erstesP.zeit, hoehe: erstesP.hoehe, echt: true, art: erstesP.art };
   }
   if (zeitWert >= letztesP.zeit.getTime()) {
-    return {
-      pixelX: xSkala.getPixelForValue(letztesP.zeit.getTime()),
-      pixelY: ySkala.getPixelForValue(letztesP.hoehe),
-      zeit: letztesP.zeit, hoehe: letztesP.hoehe, echt: true, art: letztesP.art
-    };
+    return { pixelX: xSkala.getPixelForValue(letztesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(letztesP.hoehe), zeit: letztesP.zeit, hoehe: letztesP.hoehe, echt: true, art: letztesP.art };
   }
 
   let i = 0;
@@ -331,7 +534,7 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
 
   const pixelP1 = xSkala.getPixelForValue(t1);
   const pixelP2 = xSkala.getPixelForValue(t2);
-  const schwelle = 14; // Pixel-Toleranz zum "Einrasten" auf echte Punkte
+  const schwelle = 14;
 
   if (Math.abs(x - pixelP1) <= schwelle) {
     return { pixelX: pixelP1, pixelY: ySkala.getPixelForValue(p1.hoehe), zeit: p1.zeit, hoehe: p1.hoehe, echt: true, art: p1.art };
@@ -340,16 +543,8 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
     return { pixelX: pixelP2, pixelY: ySkala.getPixelForValue(p2.hoehe), zeit: p2.zeit, hoehe: p2.hoehe, echt: true, art: p2.art };
   }
 
-  // Gleiche Formel wie beim Erzeugen der dichten Kurve -> Punkt liegt exakt auf der Linie!
   const hoehe = kosinusWert(p1, p2, zeitWert);
-  return {
-    pixelX: x,
-    pixelY: ySkala.getPixelForValue(hoehe),
-    zeit: new Date(zeitWert),
-    hoehe: hoehe,
-    echt: false,
-    art: null
-  };
+  return { pixelX: x, pixelY: ySkala.getPixelForValue(hoehe), zeit: new Date(zeitWert), hoehe: hoehe, echt: false, art: null };
 }
 
 function crosshairPointerMove(evt) {
@@ -383,18 +578,83 @@ canvasEl.addEventListener('touchmove', crosshairPointerMove, { passive: false })
 canvasEl.addEventListener('touchend', crosshairPointerLeave);
 canvasEl.addEventListener('touchcancel', crosshairPointerLeave);
 
+/* ============================================================
+   Farbschema je nach Hell/Dunkel-Modus (für alles, was per
+   Canvas gezeichnet wird und nicht automatisch auf CSS reagiert)
+   ============================================================ */
+function istDarkMode() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function holeChartFarben() {
+  return istDarkMode() ? {
+    linie: '#5aa9dc',
+    verlaufStart: 'rgba(90,169,220,0.35)',
+    verlaufEnde: 'rgba(90,169,220,0.02)',
+    gitter: 'rgba(255,255,255,0.08)',
+    tooltipBg: 'rgba(20,40,60,0.95)',
+    wattZone: 'rgba(60,190,130,0.22)',
+    hw: '#ff6b81',
+    nw: '#4ee08a',
+    crosshairLinie: 'rgba(150,190,220,0.6)'
+  } : {
+    linie: '#14507a',
+    verlaufStart: 'rgba(20,80,122,0.35)',
+    verlaufEnde: 'rgba(20,80,122,0.02)',
+    gitter: 'rgba(0,0,0,0.05)',
+    tooltipBg: 'rgba(13,59,92,0.92)',
+    wattZone: 'rgba(42,157,92,0.15)',
+    hw: '#d1495b',
+    nw: '#2a9d5c',
+    crosshairLinie: 'rgba(20,80,122,0.7)'
+  };
+}
+
+/* ============================================================
+   NEU: Plugin zeichnet die grüne Wattwander-Zone rund um jedes
+   Niedrigwasser im aktuell angezeigten Zeitraum.
+   ============================================================ */
+const wattZonePlugin = {
+  id: 'wattZone',
+  beforeDraw(chartInstanz) {
+    const daten = echtePunkte;
+    if (!daten.length) return;
+    const { ctx, chartArea } = chartInstanz;
+    const xSkala = chartInstanz.scales.x;
+    const farben = holeChartFarben();
+    const fensterMs = WATT_FENSTER_STUNDEN * 60 * 60 * 1000;
+
+    daten.filter(p => p.art === 'NW').forEach(p => {
+      const startZeit = p.zeit.getTime() - fensterMs;
+      const endZeit = p.zeit.getTime() + fensterMs;
+      let pixelStart = xSkala.getPixelForValue(startZeit);
+      let pixelEnd = xSkala.getPixelForValue(endZeit);
+
+      pixelStart = Math.max(pixelStart, chartArea.left);
+      pixelEnd = Math.min(pixelEnd, chartArea.right);
+      if (pixelEnd <= chartArea.left || pixelStart >= chartArea.right) return;
+
+      ctx.save();
+      ctx.fillStyle = farben.wattZone;
+      ctx.fillRect(pixelStart, chartArea.top, pixelEnd - pixelStart, chartArea.bottom - chartArea.top);
+      ctx.restore();
+    });
+  }
+};
+Chart.register(wattZonePlugin);
+
 const crosshairPlugin = {
   id: 'crosshairLine',
   afterDraw(chartInstanz) {
     if (!crosshairState) return;
     const { ctx, chartArea } = chartInstanz;
     const { pixelX, pixelY, zeit, hoehe, echt, art } = crosshairState;
+    const farben = holeChartFarben();
 
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([6, 5]);
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(20,80,122,0.7)';
+    ctx.strokeStyle = farben.crosshairLinie;
     ctx.moveTo(pixelX, chartArea.top);
     ctx.lineTo(pixelX, chartArea.bottom);
     ctx.stroke();
@@ -402,9 +662,7 @@ const crosshairPlugin = {
     ctx.setLineDash([]);
     ctx.beginPath();
     ctx.arc(pixelX, pixelY, echt ? 7 : 5, 0, Math.PI * 2);
-    ctx.fillStyle = echt
-      ? (art === 'HW' ? '#d1495b' : art === 'NW' ? '#2a9d5c' : '#14507a')
-      : '#14507a';
+    ctx.fillStyle = echt ? (art === 'HW' ? farben.hw : art === 'NW' ? farben.nw : farben.linie) : farben.linie;
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 2;
     ctx.fill();
@@ -426,13 +684,10 @@ const crosshairPlugin = {
     if (boxX + boxBreite > chartArea.right) boxX = pixelX - boxBreite - 10;
     const boxY = chartArea.top + 8;
 
-    ctx.fillStyle = 'rgba(13,59,92,0.92)';
+    ctx.fillStyle = farben.tooltipBg;
     ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(boxX, boxY, boxBreite, boxHoehe, 8);
-    } else {
-      ctx.rect(boxX, boxY, boxBreite, boxHoehe);
-    }
+    if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxBreite, boxHoehe, 8);
+    else ctx.rect(boxX, boxY, boxBreite, boxHoehe);
     ctx.fill();
 
     ctx.fillStyle = '#fff';
@@ -451,16 +706,17 @@ function zeichneChart(daten, label) {
   const ctx = canvas.getContext('2d');
   if (chart) chart.destroy();
 
-  echtePunkte = daten; // für Crosshair & Snapping
+  echtePunkte = daten;
+  letzteChartDaten = daten;
+  letzterChartLabel = label;
   crosshairState = null;
 
-  // NEU: dichte Punktreihe erzeugen -> das ist jetzt die tatsächlich
-  // gezeichnete Kurve, exakt nach derselben Formel wie der Crosshair-Wert
   const dichteKurve = erzeugeDichteKurve(daten, 5);
+  const farben = holeChartFarben();
 
   const verlauf = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
-  verlauf.addColorStop(0, 'rgba(20,80,122,0.35)');
-  verlauf.addColorStop(1, 'rgba(20,80,122,0.02)');
+  verlauf.addColorStop(0, farben.verlaufStart);
+  verlauf.addColorStop(1, farben.verlaufEnde);
 
   chart = new Chart(ctx, {
     type: 'line',
@@ -468,16 +724,14 @@ function zeichneChart(daten, label) {
       datasets: [{
         label: label,
         data: dichteKurve.map(p => ({ x: p.zeit, y: p.hoehe })),
-        borderColor: '#14507a',
+        borderColor: farben.linie,
         borderWidth: 2.5,
         backgroundColor: verlauf,
         fill: true,
-        tension: 0, // WICHTIG: keine eigene Chart.js-Glättung mehr,
-                    // die dichten Punkte sorgen selbst für die Weichheit
+        tension: 0,
         pointRadius: dichteKurve.map(p => p.echt ? 5 : 0),
         pointHoverRadius: dichteKurve.map(p => p.echt ? 7 : 0),
-        pointBackgroundColor: dichteKurve.map(p =>
-          p.art === 'HW' ? '#d1495b' : p.art === 'NW' ? '#2a9d5c' : 'transparent'),
+        pointBackgroundColor: dichteKurve.map(p => p.art === 'HW' ? farben.hw : p.art === 'NW' ? farben.nw : 'transparent'),
         pointBorderColor: '#fff',
         pointBorderWidth: dichteKurve.map(p => p.echt ? 2 : 0)
       }]
@@ -491,11 +745,11 @@ function zeichneChart(daten, label) {
           type: 'time',
           time: { unit: 'hour', displayFormats: { hour: 'dd.MM HH:mm' } },
           title: { display: true, text: 'Datum / Uhrzeit' },
-          grid: { color: 'rgba(0,0,0,0.05)' }
+          grid: { color: farben.gitter }
         },
         y: {
           title: { display: true, text: 'Höhe (cm ü. Pegelnull)' },
-          grid: { color: 'rgba(0,0,0,0.05)' }
+          grid: { color: farben.gitter }
         }
       },
       plugins: {
@@ -503,6 +757,14 @@ function zeichneChart(daten, label) {
         tooltip: { enabled: false }
       }
     }
+  });
+}
+
+// Bei Wechsel des Farbschemas (z.B. Handy wechselt abends in Dark Mode)
+// den Graph mit den neuen Farben neu zeichnen
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
   });
 }
 
@@ -516,17 +778,26 @@ function befuelleTabelle(daten) {
     if (tag !== letzterTag) {
       const tr = document.createElement('tr');
       tr.className = 'day-header';
-      tr.innerHTML = `<td colspan="4">${tag}</td>`;
+      tr.innerHTML = `<td colspan="5">${tag}</td>`;
       body.appendChild(tr);
       letzterTag = tag;
     }
     const tr = document.createElement('tr');
     tr.className = p.art === 'HW' ? 'hw' : 'nw';
+
+    let hubHtml = '–';
+    if (p.hub !== null && p.hub !== undefined) {
+      const badgeClass = p.hubTyp === 'spring' ? 'hub-spring' : p.hubTyp === 'nipp' ? 'hub-nipp' : '';
+      const badgeIcon = p.hubTyp === 'spring' ? ' 🔺' : p.hubTyp === 'nipp' ? ' 🔻' : '';
+      hubHtml = `<span class="${badgeClass}">${Math.round(p.hub)} cm${badgeIcon}</span>`;
+    }
+
     tr.innerHTML = `
       <td></td>
       <td>${formatZeit(p.zeit)}</td>
       <td class="art">${p.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser'}</td>
-      <td>${p.hoehe} cm</td>
+      <td>${Math.round(p.hoehe)} cm</td>
+      <td>${hubHtml}</td>
     `;
     body.appendChild(tr);
   });
@@ -544,13 +815,17 @@ async function holeUndZeigeDaten(stationKey) {
       json = cacheOdde;
     }
 
-    const daten = extrahiereHWNW(json);
+    let daten = extrahiereHWNW(json);
     const label = json?.properties?.gauge_label || (stationKey === 'hafen' ? 'Amrum Hafen' : 'Amrum Odde');
 
     if (daten.length === 0) {
       setStatus("Keine Vorhersagedaten für diese Station verfügbar.", true);
       return;
     }
+
+    // NEU: Tidenhub für jeden Punkt berechnen
+    daten = berechneTidenhub(daten);
+    volleDaten = daten; // ungefiltert, für Countdown
 
     const jetzt = new Date();
 
@@ -566,6 +841,7 @@ async function holeUndZeigeDaten(stationKey) {
 
     zeichneChart(gefiltertHeute.length ? gefiltertHeute : daten, label);
     befuelleTabelle(gefiltert5Tage.length ? gefiltert5Tage : daten);
+    aktualisiereLiveInfo();
 
     const forecastZeit = json?.properties?.forecast_timestamp;
     setStatus(forecastZeit
@@ -589,6 +865,23 @@ document.getElementById('btnOdde').addEventListener('click', () => {
   document.getElementById('btnHafen').classList.remove('active');
   holeUndZeigeDaten('odde');
 });
+
+// Countdown alle 30 Sekunden aktualisieren (ohne neu von der API zu laden)
+setInterval(aktualisiereLiveInfo, 30000);
+
+// Mondphase einmal berechnen + stündlich aktualisieren
+aktualisiereMondphase();
+setInterval(aktualisiereMondphase, 60 * 60 * 1000);
+
+// PWA: Service Worker registrieren, damit die Seite installierbar
+// wird und die zuletzt geladenen Daten offline verfügbar sind
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(err => {
+      console.warn('Service Worker konnte nicht registriert werden:', err);
+    });
+  });
+}
 
 holeUndZeigeDaten('hafen');
 </script>
