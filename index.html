@@ -186,7 +186,7 @@
   }
   .legende-hw { background: var(--akzent-rot); }
   .legende-nw { background: var(--akzent-gruen); }
-  .legende-zone {
+  /*.legende-zone {
     display: inline-block;
     width: 22px; height: 10px;
     background: rgba(42,157,92,0.35);
@@ -203,7 +203,7 @@
     padding: 10px 12px;
     margin: 10px 4px 4px;
     line-height: 1.4;
-  }
+  } */
 
   table {
     width: 100%;
@@ -285,15 +285,15 @@
   <div class="chart-legende">
     <span><span class="legende-punkt legende-hw"></span>Hochwasser</span>
     <span><span class="legende-punkt legende-nw"></span>Niedrigwasser</span>
-    <span><span class="legende-zone"></span>Ungefähres Wattwander-Zeitfenster</span>
+    <!-- <span><span class="legende-zone"></span>Ungefähres Wattwander-Zeitfenster</span> -->
   </div>
-  <div class="watt-hinweis">
+  <!-- <div class="watt-hinweis">
     ⚠️ Das grüne Zeitfenster ist nur eine <strong>rechnerische Orientierung</strong> (±2 Std. um
     Niedrigwasser) und ersetzt <strong>keine</strong> offizielle Gezeitentabelle oder ortskundige
     Wattführung! Wind, Wetter und Sturmflut können die tatsächliche Tide stark verschieben.
     Bitte vor jeder Wattwanderung aktuelle, geprüfte Infos einholen (z. B. Kurverwaltung oder
     zertifizierter Wattführer).
-  </div>
+  </div> -->
 </div>
 
 <table id="tabelle">
@@ -325,7 +325,7 @@ const STATION_ID_ODDE  = "amrum_odde";     // TODO: echte ID eintragen
 const PROXY_BASE = "/api/tide?id=";
 
 // Wie viele Stunden vor/nach Niedrigwasser gilt als "Wattwander-Fenster"?
-const WATT_FENSTER_STUNDEN = 2;
+//const WATT_FENSTER_STUNDEN = 2;
 
 let aktuelleStation = "hafen";
 let chart;
@@ -613,7 +613,7 @@ function holeChartFarben() {
    NEU: Plugin zeichnet die grüne Wattwander-Zone rund um jedes
    Niedrigwasser im aktuell angezeigten Zeitraum.
    ============================================================ */
-const wattZonePlugin = {
+/*const wattZonePlugin = {
   id: 'wattZone',
   beforeDraw(chartInstanz) {
     const daten = echtePunkte;
@@ -640,7 +640,7 @@ const wattZonePlugin = {
     });
   }
 };
-Chart.register(wattZonePlugin);
+Chart.register(wattZonePlugin); */
 
 const crosshairPlugin = {
   id: 'crosshairLine',
