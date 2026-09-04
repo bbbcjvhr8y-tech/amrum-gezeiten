@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Gezeiten Amrum (Live BSH-Daten)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 0 10px;
+    background: #f5f8fa;
+  }
+  h1 { text-align: center; color: #14507a; }
+  .switch-wrap {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .switch-wrap button {
+    padding: 10px 20px;
+    border: 2px solid #14507a;
+    background: white;
+    color: #14507a;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .switch-wrap button.active {
+    background: #14507a;
+    color: white;
+  }
+  #status {
+    text-align: center;
+    margin-bottom: 15px;
+    color: #666;
+    font-size: 0.9em;
+    min-height: 20px;
+  }
+  #status.error { color: #b30000; font-weight: bold; }
+  canvas {
+    background: white;
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 25px;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  th, td {
+    padding: 10px 8px;
+    text-align: center;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  th {
+    background: #14507a;
+    color: white;
+  }
+  tr.hw td.art { color: #b30000; font-weight: bold; }
+  tr.nw td.art { color: #007a33; font-weight: bold; }
+  .day-header {
+    background: #eef4fa;
+    font-weight: bold;
+  }
+  footer {
+    text-align: center;
+    color: #888;
+    font-size: 0.85em;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🌊 Gezeiten Amrum (Live)</h1>
+
+<div class="switch-wrap">
+  <button id="btnHafen" class="active">Amrum Hafen (Wittdün)</button>
+  <button id="btnOdde">Amrum Odde</button>
+</div>
+
+<div id="status">Lade Daten…</div>
+
+<canvas id="chart" height="200"></canvas>
+
+<table id="tabelle">
+  <thead>
+    <tr><th>Datum</th><th>Uhrzeit</th><th>Art</th><th>Höhe (cm ü. Pegelnull)</th></tr>
+  </thead>
+  <tbody id="tabelleBody"></tbody>
+</table>
+
+<footer>
+  Datenquelle: Bundesamt für Seeschifffahrt und Hydrographie (BSH) –
+  <a href="https://www.bsh.de" target="_blank">www.bsh.de</a>.
+  Keine Gewähr auf Richtigkeit/Aktualität – offizielle Vorhersage siehe BSH-Webseite.
+</footer>
+
+<script>
+console.log("###### DATEI-VERSION: bereinigt, nur EINE ladeStationsdaten-Funktion ######");
+
+/* ==========================================================
+   HIER DIE ECHTEN STATIONS-IDs EINTRAGEN
+   ========================================================== */
+const STATION_ID_HAFEN = "wittduen_hafen"; // TODO: echte ID eintragen
+const STATION_ID_ODDE  = "amrum_odde";     // TODO: echte ID eintragen
+
+// Lokaler Python-Proxy statt direkter BSH-Anfrage (wegen CORS)
+const PROXY_BASE = "/api/tide?id=";
+
+let aktuelleStation = "hafen";
+let chart;
+let cacheHafen = null;
+let cacheOdde = null;
+
+function setStatus(text, isError = false) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.classList.toggle('error', isError);
+}
+
+async function ladeStationsdaten(stationId) {
+  const url = PROXY_BASE + encodeURIComponent(stationId);
+  console.log("Rufe lokalen Proxy auf:", url);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`API-Fehler (${response.status}) für Station ${stationId}`);
+  }
+  const json = await response.json();
+  return json;
+}
+
+function extrahiereHWNW(apiResponse) {
+  const liste = apiResponse?.properties?.high_water_low_water;
+  if (!liste || !Array.isArray(liste)) return [];
+
+  return liste
+    .filter(e => e.event_timestamp && e.event)
+    .map(e => {
+      const zeit = new Date(e.event_timestamp);
+      const hoehe = (e.forecast_value !== undefined && e.forecast_value !== null)
+        ? e.forecast_value
+        : e.tidal_prediction_value;
+      return {
+        zeit: zeit,
+        hoehe: hoehe,
+        art: e.event
+      };
+    })
+    .filter(e => e.hoehe !== undefined && e.hoehe !== null)
+    .sort((a, b) => a.zeit - b.zeit);
+}
+
+function formatDatum(d) {
+  return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+}
+function formatZeit(d) {
+  return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function zeichneChart(daten, label) {
+  const ctx = document.getElementById('chart').getContext('2d');
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: label,
+        data: daten.map(p => ({ x: p.zeit, y: p.hoehe })),
+        borderColor: '#14507a',
+        backgroundColor: 'rgba(20,80,122,0.15)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 5,
+        pointBackgroundColor: daten.map(p => p.art === 'HW' ? '#b30000' : '#007a33')
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', displayFormats: { hour: 'dd.MM HH:mm' } },
+          title: { display: true, text: 'Datum / Uhrzeit' }
+        },
+        y: {
+          title: { display: true, text: 'Höhe (cm ü. Pegelnull)' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const p = daten[ctx.dataIndex];
+              return `${p.art === 'HW' ? 'Hochwasser' : 'Niedrigwasser'}: ${p.hoehe} cm`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function befuelleTabelle(daten) {
+  const body = document.getElementById('tabelleBody');
+  body.innerHTML = '';
+  let letzterTag = null;
+
+  daten.forEach(p => {
+    const tag = formatDatum(p.zeit);
+    if (tag !== letzterTag) {
+      const tr = document.createElement('tr');
+      tr.className = 'day-header';
+      tr.innerHTML = `<td colspan="4">${tag}</td>`;
+      body.appendChild(tr);
+      letzterTag = tag;
+    }
+    const tr = document.createElement('tr');
+    tr.className = p.art === 'HW' ? 'hw' : 'nw';
+    tr.innerHTML = `
+      <td></td>
+      <td>${formatZeit(p.zeit)}</td>
+      <td class="art">${p.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser'}</td>
+      <td>${p.hoehe} cm</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+async function holeUndZeigeDaten(stationKey) {
+  setStatus("Lade Daten…");
+  try {
+    let json;
+    if (stationKey === 'hafen') {
+      if (!cacheHafen) cacheHafen = await ladeStationsdaten(STATION_ID_HAFEN);
+      json = cacheHafen;
+    } else {
+      if (!cacheOdde) cacheOdde = await ladeStationsdaten(STATION_ID_ODDE);
+      json = cacheOdde;
+    }
+
+    const daten = extrahiereHWNW(json);
+    const label = json?.properties?.gauge_label || (stationKey === 'hafen' ? 'Amrum Hafen' : 'Amrum Odde');
+
+    if (daten.length === 0) {
+      setStatus("Keine Vorhersagedaten für diese Station verfügbar.", true);
+      return;
+    }
+
+    const jetzt = new Date();
+
+    // Für die TABELLE: kommende 5 Tage
+    const in5Tagen = new Date(jetzt.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const gefiltert5Tage = daten.filter(p => p.zeit >= jetzt && p.zeit <= in5Tagen);
+
+// Für den CHART: heute + morgen
+    const heuteStart = new Date(jetzt);
+    heuteStart.setHours(0, 0, 0, 0);
+    const heuteEnde = new Date(jetzt);
+    heuteEnde.setDate(heuteEnde.getDate() + 1); // einen Tag weiter
+    heuteEnde.setHours(23, 59, 59, 999);
+    const gefiltertHeute = daten.filter(p => p.zeit >= heuteStart && p.zeit <= heuteEnde);
+
+    zeichneChart(gefiltertHeute.length ? gefiltertHeute : daten, label);
+    befuelleTabelle(gefiltert5Tage.length ? gefiltert5Tage : daten);
+
+    const forecastZeit = json?.properties?.forecast_timestamp;
+    setStatus(forecastZeit
+      ? `Vorhersage aktualisiert: ${new Date(forecastZeit).toLocaleString('de-DE')}`
+      : "");
+  } catch (err) {
+    console.error(err);
+    setStatus(`Fehler beim Laden: ${err.message}`, true);
+  }
+}
+
+
+document.getElementById('btnHafen').addEventListener('click', () => {
+  aktuelleStation = 'hafen';
+  document.getElementById('btnHafen').classList.add('active');
+  document.getElementById('btnOdde').classList.remove('active');
+  holeUndZeigeDaten('hafen');
+});
+document.getElementById('btnOdde').addEventListener('click', () => {
+  aktuelleStation = 'odde';
+  document.getElementById('btnOdde').classList.add('active');
+  document.getElementById('btnHafen').classList.remove('active');
+  holeUndZeigeDaten('odde');
+});
+
+holeUndZeigeDaten('hafen');
+</script>
+
+</body>
+</html>
