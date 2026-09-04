@@ -87,7 +87,7 @@
      ============================================================ */
   .chart-wrapper {
     position: relative;
-    height: 400px;   /* <-- HIER Höhe ändern */
+    height: 320px;   /* <-- HIER Höhe ändern */
   }
   @media (max-width: 480px) {
     .chart-wrapper {
@@ -179,7 +179,7 @@
 </footer>
 
 <script>
-console.log("###### DATEI-VERSION: mit interpolierter Crosshair-Linie + neuer Optik ######");
+console.log("###### DATEI-VERSION: dichte Kurve = exakt gleiche Formel wie Crosshair ######");
 
 /* ==========================================================
    HIER DIE ECHTEN STATIONS-IDs EINTRAGEN
@@ -187,7 +187,6 @@ console.log("###### DATEI-VERSION: mit interpolierter Crosshair-Linie + neuer Op
 const STATION_ID_HAFEN = "wittduen_hafen"; // TODO: echte ID eintragen
 const STATION_ID_ODDE  = "amrum_odde";     // TODO: echte ID eintragen
 
-// Lokaler Python-Proxy statt direkter BSH-Anfrage (wegen CORS)
 const PROXY_BASE = "/api/tide?id=";
 
 let aktuelleStation = "hafen";
@@ -195,8 +194,9 @@ let chart;
 let cacheHafen = null;
 let cacheOdde = null;
 
-// Die gerade angezeigten Datenpunkte (für die Crosshair-Berechnung)
-let aktuelleChartDaten = [];
+// Die ECHTEN HW/NW-Punkte der gerade angezeigten Zeitspanne
+// (wird für Snapping & Crosshair-Berechnung gebraucht)
+let echtePunkte = [];
 
 // Aktueller Zustand der Crosshair-Linie (null = nicht sichtbar)
 let crosshairState = null;
@@ -248,25 +248,57 @@ function formatZeit(d) {
 }
 
 /* ============================================================
-   CROSSHAIR-LOGIK: interpoliert zwischen den echten HW/NW-
-   Punkten und "rastet" ein, wenn man nah an einem echten Punkt ist.
+   Kosinus-Interpolation zwischen zwei echten Punkten.
+   WICHTIG: Diese Funktion wird jetzt an ZWEI Stellen benutzt:
+   1) um die dichte Kurve zu erzeugen, die Chart.js zeichnet
+   2) um den Crosshair-Wert an einer beliebigen Stelle zu berechnen
+   -> dadurch stimmen Kurve und Crosshair immer exakt überein!
    ============================================================ */
-
-// liefert Info (Position + Wert) für einen echten Datenpunkt
-function punktInfo(p, xSkala, ySkala, echt) {
-  return {
-    pixelX: xSkala.getPixelForValue(p.zeit.getTime()),
-    pixelY: ySkala.getPixelForValue(p.hoehe),
-    zeit: p.zeit,
-    hoehe: p.hoehe,
-    echt: echt,
-    art: p.art
-  };
+function kosinusWert(p1, p2, zeitMs) {
+  const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
+  const anteil = (zeitMs - t1) / (t2 - t1);
+  return (p1.hoehe + p2.hoehe) / 2 + (p1.hoehe - p2.hoehe) / 2 * Math.cos(Math.PI * anteil);
 }
 
-// Berechnet Zeit + Höhe an einer beliebigen Pixel-x-Position im Chart
+/* ============================================================
+   Erzeugt aus den echten HW/NW-Punkten eine "dichte" Punktreihe
+   (alle X Minuten ein berechneter Zwischenwert). Diese dichte
+   Reihe wird Chart.js als Kurve übergeben (mit tension:0 -> 
+   gerade Linien zwischen den vielen dichten Punkten, was durch
+   die hohe Punktzahl trotzdem butterweich aussieht).
+   ============================================================ */
+function erzeugeDichteKurve(daten, schrittMinuten = 5) {
+  if (daten.length < 2) {
+    return daten.map(p => ({ zeit: p.zeit, hoehe: p.hoehe, art: p.art, echt: true }));
+  }
+  const ergebnis = [];
+  const schrittMs = schrittMinuten * 60 * 1000;
+
+  for (let i = 0; i < daten.length - 1; i++) {
+    const p1 = daten[i], p2 = daten[i + 1];
+    ergebnis.push({ zeit: p1.zeit, hoehe: p1.hoehe, art: p1.art, echt: true });
+
+    const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
+    for (let t = t1 + schrittMs; t < t2; t += schrittMs) {
+      ergebnis.push({
+        zeit: new Date(t),
+        hoehe: kosinusWert(p1, p2, t),
+        art: null,
+        echt: false
+      });
+    }
+  }
+  const letzter = daten[daten.length - 1];
+  ergebnis.push({ zeit: letzter.zeit, hoehe: letzter.hoehe, art: letzter.art, echt: true });
+  return ergebnis;
+}
+
+/* ============================================================
+   CROSSHAIR-LOGIK: berechnet Zeit + Höhe an einer beliebigen
+   Pixel-x-Position, mit Snapping auf echte Punkte in der Nähe.
+   ============================================================ */
 function berechneCrosshairInfo(chartInstanz, pixelX) {
-  const daten = aktuelleChartDaten;
+  const daten = echtePunkte;
   if (!daten.length) return null;
 
   const bereich = chartInstanz.chartArea;
@@ -275,15 +307,23 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
   const ySkala = chartInstanz.scales.y;
   const zeitWert = xSkala.getValueForPixel(x);
 
-  // Außerhalb des Datenbereichs -> auf Randpunkt springen
-  if (zeitWert <= daten[0].zeit.getTime()) {
-    return punktInfo(daten[0], xSkala, ySkala, true);
+  const erstesP = daten[0], letztesP = daten[daten.length - 1];
+
+  if (zeitWert <= erstesP.zeit.getTime()) {
+    return {
+      pixelX: xSkala.getPixelForValue(erstesP.zeit.getTime()),
+      pixelY: ySkala.getPixelForValue(erstesP.hoehe),
+      zeit: erstesP.zeit, hoehe: erstesP.hoehe, echt: true, art: erstesP.art
+    };
   }
-  if (zeitWert >= daten[daten.length - 1].zeit.getTime()) {
-    return punktInfo(daten[daten.length - 1], xSkala, ySkala, true);
+  if (zeitWert >= letztesP.zeit.getTime()) {
+    return {
+      pixelX: xSkala.getPixelForValue(letztesP.zeit.getTime()),
+      pixelY: ySkala.getPixelForValue(letztesP.hoehe),
+      zeit: letztesP.zeit, hoehe: letztesP.hoehe, echt: true, art: letztesP.art
+    };
   }
 
-  // Umgebende zwei echte Punkte finden
   let i = 0;
   while (i < daten.length - 1 && daten[i + 1].zeit.getTime() < zeitWert) i++;
   const p1 = daten[i], p2 = daten[i + 1];
@@ -293,19 +333,18 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
   const pixelP2 = xSkala.getPixelForValue(t2);
   const schwelle = 14; // Pixel-Toleranz zum "Einrasten" auf echte Punkte
 
-  if (Math.abs(x - pixelP1) <= schwelle) return punktInfo(p1, xSkala, ySkala, true);
-  if (Math.abs(x - pixelP2) <= schwelle) return punktInfo(p2, xSkala, ySkala, true);
+  if (Math.abs(x - pixelP1) <= schwelle) {
+    return { pixelX: pixelP1, pixelY: ySkala.getPixelForValue(p1.hoehe), zeit: p1.zeit, hoehe: p1.hoehe, echt: true, art: p1.art };
+  }
+  if (Math.abs(x - pixelP2) <= schwelle) {
+    return { pixelX: pixelP2, pixelY: ySkala.getPixelForValue(p2.hoehe), zeit: p2.zeit, hoehe: p2.hoehe, echt: true, art: p2.art };
+  }
 
-  // Kosinus-Interpolation zwischen den beiden Punkten.
-  // Das nähert den natürlichen, sinusförmigen Verlauf der Gezeiten
-  // zwischen Hoch- und Niedrigwasser an (ähnlich der Zwölftel-Regel).
-  const anteil = (zeitWert - t1) / (t2 - t1);
-  const hoehe = (p1.hoehe + p2.hoehe) / 2 + (p1.hoehe - p2.hoehe) / 2 * Math.cos(Math.PI * anteil);
-  const pixelY = ySkala.getPixelForValue(hoehe);
-
+  // Gleiche Formel wie beim Erzeugen der dichten Kurve -> Punkt liegt exakt auf der Linie!
+  const hoehe = kosinusWert(p1, p2, zeitWert);
   return {
     pixelX: x,
-    pixelY: pixelY,
+    pixelY: ySkala.getPixelForValue(hoehe),
     zeit: new Date(zeitWert),
     hoehe: hoehe,
     echt: false,
@@ -319,7 +358,7 @@ function crosshairPointerMove(evt) {
   let clientX;
   if (evt.touches && evt.touches.length) {
     clientX = evt.touches[0].clientX;
-    evt.preventDefault(); // verhindert Scrollen der Seite beim Wischen über den Chart
+    evt.preventDefault();
   } else {
     clientX = evt.clientX;
   }
@@ -327,7 +366,7 @@ function crosshairPointerMove(evt) {
   const info = berechneCrosshairInfo(chart, x);
   if (info) {
     crosshairState = info;
-    chart.update('none'); // leichtes Redraw ohne Animation
+    chart.update('none');
   }
 }
 
@@ -336,7 +375,6 @@ function crosshairPointerLeave() {
   if (chart) chart.update('none');
 }
 
-// Event-Listener einmalig auf das Canvas-Element legen
 const canvasEl = document.getElementById('chart');
 canvasEl.addEventListener('mousemove', crosshairPointerMove);
 canvasEl.addEventListener('mouseleave', crosshairPointerLeave);
@@ -345,7 +383,6 @@ canvasEl.addEventListener('touchmove', crosshairPointerMove, { passive: false })
 canvasEl.addEventListener('touchend', crosshairPointerLeave);
 canvasEl.addEventListener('touchcancel', crosshairPointerLeave);
 
-// Plugin, das die gestrichelte Linie + den Info-Kasten zeichnet
 const crosshairPlugin = {
   id: 'crosshairLine',
   afterDraw(chartInstanz) {
@@ -354,8 +391,6 @@ const crosshairPlugin = {
     const { pixelX, pixelY, zeit, hoehe, echt, art } = crosshairState;
 
     ctx.save();
-
-    // gestrichelte vertikale Linie
     ctx.beginPath();
     ctx.setLineDash([6, 5]);
     ctx.lineWidth = 1.5;
@@ -364,7 +399,6 @@ const crosshairPlugin = {
     ctx.lineTo(pixelX, chartArea.bottom);
     ctx.stroke();
 
-    // Punktmarker auf der Kurve
     ctx.setLineDash([]);
     ctx.beginPath();
     ctx.arc(pixelX, pixelY, echt ? 7 : 5, 0, Math.PI * 2);
@@ -376,7 +410,6 @@ const crosshairPlugin = {
     ctx.fill();
     ctx.stroke();
 
-    // Info-Kasten (eigener Tooltip)
     const zeitText = zeit.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
     const datumText = zeit.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
     const zeile1 = `${datumText}, ${zeitText}`;
@@ -418,8 +451,12 @@ function zeichneChart(daten, label) {
   const ctx = canvas.getContext('2d');
   if (chart) chart.destroy();
 
-  aktuelleChartDaten = daten; // für die Crosshair-Berechnung merken
+  echtePunkte = daten; // für Crosshair & Snapping
   crosshairState = null;
+
+  // NEU: dichte Punktreihe erzeugen -> das ist jetzt die tatsächlich
+  // gezeichnete Kurve, exakt nach derselben Formel wie der Crosshair-Wert
+  const dichteKurve = erzeugeDichteKurve(daten, 5);
 
   const verlauf = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
   verlauf.addColorStop(0, 'rgba(20,80,122,0.35)');
@@ -430,23 +467,25 @@ function zeichneChart(daten, label) {
     data: {
       datasets: [{
         label: label,
-        data: daten.map(p => ({ x: p.zeit, y: p.hoehe })),
+        data: dichteKurve.map(p => ({ x: p.zeit, y: p.hoehe })),
         borderColor: '#14507a',
         borderWidth: 2.5,
         backgroundColor: verlauf,
         fill: true,
-        tension: 0.4,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBackgroundColor: daten.map(p => p.art === 'HW' ? '#d1495b' : '#2a9d5c'),
+        tension: 0, // WICHTIG: keine eigene Chart.js-Glättung mehr,
+                    // die dichten Punkte sorgen selbst für die Weichheit
+        pointRadius: dichteKurve.map(p => p.echt ? 5 : 0),
+        pointHoverRadius: dichteKurve.map(p => p.echt ? 7 : 0),
+        pointBackgroundColor: dichteKurve.map(p =>
+          p.art === 'HW' ? '#d1495b' : p.art === 'NW' ? '#2a9d5c' : 'transparent'),
         pointBorderColor: '#fff',
-        pointBorderWidth: 2
+        pointBorderWidth: dichteKurve.map(p => p.echt ? 2 : 0)
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: false, // sorgt für ein flüssiges Update beim Ziehen der Crosshair-Linie
+      animation: false,
       scales: {
         x: {
           type: 'time',
@@ -461,7 +500,7 @@ function zeichneChart(daten, label) {
       },
       plugins: {
         legend: { display: false },
-        tooltip: { enabled: false } // ersetzt durch die eigene Crosshair-Anzeige
+        tooltip: { enabled: false }
       }
     }
   });
@@ -515,11 +554,9 @@ async function holeUndZeigeDaten(stationKey) {
 
     const jetzt = new Date();
 
-    // Für die TABELLE: kommende 5 Tage
     const in5Tagen = new Date(jetzt.getTime() + 5 * 24 * 60 * 60 * 1000);
     const gefiltert5Tage = daten.filter(p => p.zeit >= jetzt && p.zeit <= in5Tagen);
 
-    // Für den CHART: heute + morgen
     const heuteStart = new Date(jetzt);
     heuteStart.setHours(0, 0, 0, 0);
     const heuteEnde = new Date(jetzt);
