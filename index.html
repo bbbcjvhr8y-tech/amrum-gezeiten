@@ -367,14 +367,16 @@ function extrahiereHWNW(apiResponse) {
     .filter(e => e.event_timestamp && e.event)
     .map(e => {
       const zeit = new Date(e.event_timestamp);
-      const hoehe = (e.forecast_value !== undefined && e.forecast_value !== null)
+      const roh = (e.forecast_value !== undefined && e.forecast_value !== null)
         ? e.forecast_value
         : e.tidal_prediction_value;
+      const hoehe = roh !== undefined && roh !== null ? parseFloat(roh) : null; // 👈 NEU
       return { zeit, hoehe, art: e.event };
     })
-    .filter(e => e.hoehe !== undefined && e.hoehe !== null)
+    .filter(e => e.hoehe !== undefined && e.hoehe !== null && !isNaN(e.hoehe)) // 👈 NaN-Check ergänzt
     .sort((a, b) => a.zeit - b.zeit);
 }
+
 
 /* ============================================================
    NEU: Berechnet den Tidenhub (Differenz zur vorherigen Tide)
