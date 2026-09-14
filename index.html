@@ -464,14 +464,14 @@ function aktualisiereLiveInfo() {
    LIVE-PEGEL / WASSERTEMPERATUR (PEGELONLINE)
    ============================================================ */
 async function ladeLivePegelInfo(uuid) {
-  const url = `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations/${uuid}.json?includeTimeseries=true&includeCurrentMeasurement=true`;
+  const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=info`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
   return await resp.json();
 }
 
 async function ladeLiveMessreihe(uuid, tageZurueck = 3) {
-  const url = `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations/${uuid}/W/measurements.json?start=P${tageZurueck}D`;
+  const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=messreihe&tage=${tageZurueck}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
   const data = await resp.json();
