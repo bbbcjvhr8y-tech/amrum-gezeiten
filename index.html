@@ -985,16 +985,23 @@ async function holeUndZeigeDaten(stationKey) {
     volleDaten = daten;
 
     // Fester Anzeigezeitraum: heute 00:00 bis in 2 Tagen 00:00
-    const heuteStart = new Date();
-    heuteStart.setHours(0, 0, 0, 0);
-    const anzeigeEnde = new Date(heuteStart);
-    anzeigeEnde.setDate(anzeigeEnde.getDate() + 2);
+   // Fester Anzeigezeitraum für den GRAPHEN: heute 00:00 bis in 2 Tagen 00:00
+	const heuteStart = new Date();
+	heuteStart.setHours(0, 0, 0, 0);
+	const anzeigeEnde = new Date(heuteStart);
+	anzeigeEnde.setDate(anzeigeEnde.getDate() + 2);
 
-    const gefiltert = daten.filter(p => p.zeit >= heuteStart && p.zeit < anzeigeEnde);
+	const gefiltert = daten.filter(p => p.zeit >= heuteStart && p.zeit < anzeigeEnde);
 
-    zeichneChart(gefiltert.length ? gefiltert : daten, label);
-    befuelleTabelle(gefiltert.length ? gefiltert : daten);
-    aktualisiereLiveInfo();
+// Separater, längerer Zeitraum NUR für die Tabelle: heute 00:00 bis in 4 Tagen 00:00
+	const tabellenEnde = new Date(heuteStart);
+	tabellenEnde.setDate(tabellenEnde.getDate() + 4); // 👈 hier die Anzahl Tage anpassen
+
+	const gefiltertTabelle = daten.filter(p => p.zeit >= heuteStart && p.zeit < tabellenEnde);
+
+	zeichneChart(gefiltert.length ? gefiltert : daten, label);
+	befuelleTabelle(gefiltertTabelle.length ? gefiltertTabelle : daten);
+	aktualisiereLiveInfo();
 
     const forecastZeit = json?.properties?.forecast_timestamp;
     setStatus(forecastZeit
