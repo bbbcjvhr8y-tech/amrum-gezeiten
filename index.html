@@ -783,13 +783,14 @@ const kennwertLinienPlugin = {
       ctx.font = 'bold 11px system-ui, sans-serif';
       const label = `${text} ${Math.round(wert)} cm`;
       const breite = ctx.measureText(label).width + 10;
+      const labelX = chartArea.left + 8; // 👈 jetzt links statt rechts
       ctx.fillStyle = farbe;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(chartArea.right - breite - 4, pixelY - 16, breite, 16, 4);
-      else ctx.rect(chartArea.right - breite - 4, pixelY - 16, breite, 16);
+      if (ctx.roundRect) ctx.roundRect(labelX, pixelY - 16, breite, 16, 4);
+      else ctx.rect(labelX, pixelY - 16, breite, 16);
       ctx.fill();
       ctx.fillStyle = '#fff';
-      ctx.fillText(label, chartArea.right - breite + 1, pixelY - 4);
+      ctx.fillText(label, labelX + 5, pixelY - 4);
       ctx.restore();
     }
 
