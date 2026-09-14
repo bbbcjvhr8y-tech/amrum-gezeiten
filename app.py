@@ -141,6 +141,8 @@ def pegel():
 
     if mode == 'messreihe':
         pegel_url = f"{PEGEL_BASE}{uuid}/W/measurements.json?start=P{tage}D"
+    elif mode == 'kennwerte':
+        pegel_url = f"{PEGEL_BASE}{uuid}/W/characteristicvalues.json"
     else:
         pegel_url = f"{PEGEL_BASE}{uuid}.json?includeTimeseries=true&includeCurrentMeasurement=true"
 

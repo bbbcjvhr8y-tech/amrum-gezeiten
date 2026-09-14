@@ -303,6 +303,8 @@
 <div class="chart-legende" style="margin-top:6px;">
   <span>🔺 überdurchschnittlicher Tidenhub (ähnlich Springtide)</span>
   <span>🔻 unterdurchschnittlicher Tidenhub (ähnlich Nipptide)</span>
+  <span><span class="legende-linie gestrichelt" style="border-color:#6aa84f;"></span>MThw</span>
+  <span><span class="legende-linie gestrichelt" style="border-color:#93c47d;"></span>MTnw</span>
 </div>
 
 <footer>
@@ -327,7 +329,11 @@ const PROXY_BASE = "/api/tide?id=";
 // PEGELONLINE-Stations-UUIDs (für Live-Wasserstand + Wassertemperatur)
 const PEGEL_UUID_HAFEN = "9c4c11f2-0548-4555-beac-ecfd36f9bd74"; // Wittdün
 const PEGEL_UUID_ODDE  = null; // TODO: keine bekannte Pegelonline-Station für Amrum Odde
+const FALLBACK_MTHW = { hafen: null, odde: null };
+const FALLBACK_MTNW = { hafen: null, odde: null };
 
+let aktuellesMThw = null;
+let aktuellesMTnw = null;
 let aktuelleStation = "hafen";
 let chart;
 let cacheHafen = null;
@@ -476,6 +482,42 @@ async function ladeLiveMessreihe(uuid, tageZurueck = 3) {
   if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
   const data = await resp.json();
   return data.map(d => ({ zeit: new Date(d.timestamp), hoehe: d.value }));
+}
+
+async function ladeKennwerte(uuid) {
+  const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=kennwerte`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
+  const data = await resp.json();
+  let mthw = null, mtnw = null;
+  if (Array.isArray(data)) {
+    data.forEach(eintrag => {
+      const kurz = (eintrag.shortname || '').toUpperCase();
+      if (kurz === 'MTHW') mthw = eintrag.value;
+      if (kurz === 'MTNW') mtnw = eintrag.value;
+    });
+  }
+  return { mthw, mtnw };
+}
+
+async function aktualisiereKennwerte() {
+  const uuid = aktuelleStation === 'hafen' ? PEGEL_UUID_HAFEN : PEGEL_UUID_ODDE;
+  if (!uuid) {
+    aktuellesMThw = FALLBACK_MTHW[aktuelleStation];
+    aktuellesMTnw = FALLBACK_MTNW[aktuelleStation];
+    if (chart) chart.update('none');
+    return;
+  }
+  try {
+    const { mthw, mtnw } = await ladeKennwerte(uuid);
+    aktuellesMThw = mthw ?? FALLBACK_MTHW[aktuelleStation];
+    aktuellesMTnw = mtnw ?? FALLBACK_MTNW[aktuelleStation];
+  } catch (err) {
+    console.warn('Kennwerte (MThw/MTnw) konnten nicht geladen werden:', err);
+    aktuellesMThw = FALLBACK_MTHW[aktuelleStation];
+    aktuellesMTnw = FALLBACK_MTNW[aktuelleStation];
+  }
+  if (chart) chart.update('none');
 }
 
 async function aktualisiereLivePegel() {
@@ -716,6 +758,47 @@ Chart.register(crosshairPlugin);
 /* ============================================================
    NEU: Vertikale "Jetzt"-Linie im Graph
    ============================================================ */
+   
+const kennwertLinienPlugin = {
+  id: 'kennwertLinien',
+  afterDraw(chartInstanz) {
+    const { ctx, chartArea, scales } = chartInstanz;
+    const ySkala = scales.y;
+
+    function zeichneLinie(wert, text, farbe) {
+      if (wert === null || wert === undefined) return;
+      const pixelY = ySkala.getPixelForValue(wert);
+      if (pixelY < chartArea.top || pixelY > chartArea.bottom) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([3, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = farbe;
+      ctx.moveTo(chartArea.left, pixelY);
+      ctx.lineTo(chartArea.right, pixelY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      const label = `${text} ${Math.round(wert)} cm`;
+      const breite = ctx.measureText(label).width + 10;
+      ctx.fillStyle = farbe;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(chartArea.right - breite - 4, pixelY - 16, breite, 16, 4);
+      else ctx.rect(chartArea.right - breite - 4, pixelY - 16, breite, 16);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, chartArea.right - breite + 1, pixelY - 4);
+      ctx.restore();
+    }
+
+    zeichneLinie(aktuellesMThw, 'MThw', '#6aa84f');
+    zeichneLinie(aktuellesMTnw, 'MTnw', '#93c47d');
+  }
+};
+Chart.register(kennwertLinienPlugin);
+
 const jetztLinienPlugin = {
   id: 'jetztLinie',
   afterDraw(chartInstanz) {
@@ -923,6 +1006,7 @@ async function holeUndZeigeDaten(stationKey) {
   }
 
   aktualisiereLivePegel();
+  aktualisiereKennwerte();
 }
 
 document.getElementById('btnHafen').addEventListener('click', () => {
