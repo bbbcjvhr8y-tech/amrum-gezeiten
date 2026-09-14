@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gezeiten Amrum (Live BSH-Daten)</title>
 
-<!-- PWA: Manifest + Theme-Farbe + iOS-Unterstützung -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#14507a">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -22,6 +21,7 @@
     --blau-hell: #2f7fb8;
     --akzent-rot: #d1495b;
     --akzent-gruen: #2a9d5c;
+    --akzent-orange: #e08a2a;
     --bg: #eef3f8;
     --card-bg: #ffffff;
     --text: #1c2b36;
@@ -29,10 +29,6 @@
     --border-color: #eef1f4;
   }
 
-  /* ============================================================
-     DARK MODE: greift automatisch, wenn das Handy/Betriebssystem
-     auf "Dunkel" eingestellt ist. Kein Umschalter nötig.
-     ============================================================ */
   @media (prefers-color-scheme: dark) {
     :root {
       --blau-dunkel: #7fb8e0;
@@ -103,12 +99,10 @@
   }
   #status.error { color: var(--akzent-rot); font-weight: bold; }
 
-  /* ============================================================
-     NEU: Live-Info-Leiste (Countdown zur nächsten Tide + Mondphase)
-     ============================================================ */
+  /* Live-Info-Leiste: Nächste Tide / Wassertemperatur / Mondphase */
   .live-info {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
     margin-bottom: 16px;
   }
@@ -136,20 +130,18 @@
     color: var(--muted-text);
     margin-top: 3px;
   }
-  @media (max-width: 480px) {
+  @media (max-width: 700px) {
     .live-info { grid-template-columns: 1fr; }
   }
 
   .chart-card {
+    position: relative;
     background: var(--card-bg);
     border-radius: 16px;
     padding: 14px 10px 6px;
     box-shadow: 0 4px 14px rgba(20,80,122,0.15);
   }
 
-  /* ============================================================
-     Höhe des Graphen einstellen: einfach die px-Werte ändern
-     ============================================================ */
   .chart-wrapper {
     position: relative;
     height: 320px;
@@ -166,7 +158,22 @@
     touch-action: none;
   }
 
-  /* NEU: Legende + Sicherheits-Hinweis unter dem Graph */
+  /* NEU: Live-Pegel-Badge oben rechts im Graph (wie bei Pegelonline) */
+  .live-badge {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: rgba(20,80,122,0.9);
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 8px;
+    z-index: 5;
+    display: none;
+    pointer-events: none;
+  }
+
   .chart-legende {
     display: flex;
     flex-wrap: wrap;
@@ -184,26 +191,17 @@
     margin-right: 4px;
     vertical-align: middle;
   }
-  .legende-hw { background: var(--akzent-rot); }
-  .legende-nw { background: var(--akzent-gruen); }
-  /*.legende-zone {
+  .legende-linie {
     display: inline-block;
-    width: 22px; height: 10px;
-    background: rgba(42,157,92,0.35);
-    border-radius: 3px;
+    width: 22px; height: 0;
+    border-top: 3px solid var(--blau);
     margin-right: 4px;
     vertical-align: middle;
   }
-  .watt-hinweis {
-    font-size: 0.78rem;
-    color: var(--akzent-rot);
-    background: rgba(209,73,91,0.08);
-    border: 1px solid rgba(209,73,91,0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin: 10px 4px 4px;
-    line-height: 1.4;
-  } */
+  .legende-linie.gestrichelt { border-top-style: dashed; }
+  .legende-hw { background: var(--akzent-rot); }
+  .legende-nw { background: var(--akzent-gruen); }
+  .legende-jetzt { background: var(--akzent-orange); }
 
   table {
     width: 100%;
@@ -263,12 +261,16 @@
 
 <div id="status">Lade Daten…</div>
 
-<!-- NEU: Countdown zur nächsten Tide + Mondphase -->
 <div class="live-info">
   <div class="info-box">
     <div class="info-label">Nächste Tide</div>
     <div class="info-value" id="infoNaechsteTide">–</div>
     <div class="info-sub" id="infoNaechsteTideDetails"></div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Wassertemperatur</div>
+    <div class="info-value" id="infoWassertemp">–</div>
+    <div class="info-sub" id="infoWassertempZeit"></div>
   </div>
   <div class="info-box">
     <div class="info-label">Mondphase</div>
@@ -278,6 +280,7 @@
 </div>
 
 <div class="chart-card">
+  <div id="liveBadge" class="live-badge"></div>
   <div class="chart-wrapper">
     <canvas id="chart"></canvas>
   </div>
@@ -285,20 +288,15 @@
   <div class="chart-legende">
     <span><span class="legende-punkt legende-hw"></span>Hochwasser</span>
     <span><span class="legende-punkt legende-nw"></span>Niedrigwasser</span>
-    <!-- <span><span class="legende-zone"></span>Ungefähres Wattwander-Zeitfenster</span> -->
+    <span><span class="legende-linie gestrichelt"></span>BSH-Vorhersage</span>
+    <span><span class="legende-linie"></span>Live gemessen</span>
+    <span><span class="legende-punkt legende-jetzt"></span>Jetzt</span>
   </div>
-  <!-- <div class="watt-hinweis">
-    ⚠️ Das grüne Zeitfenster ist nur eine <strong>rechnerische Orientierung</strong> (±2 Std. um
-    Niedrigwasser) und ersetzt <strong>keine</strong> offizielle Gezeitentabelle oder ortskundige
-    Wattführung! Wind, Wetter und Sturmflut können die tatsächliche Tide stark verschieben.
-    Bitte vor jeder Wattwanderung aktuelle, geprüfte Infos einholen (z. B. Kurverwaltung oder
-    zertifizierter Wattführer).
-  </div> -->
 </div>
 
 <table id="tabelle">
   <thead>
-    <tr><th>Datum</th><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th></tr>
+    <tr><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th></tr>
   </thead>
   <tbody id="tabelleBody"></tbody>
 </table>
@@ -310,38 +308,38 @@
 <footer>
   Datenquelle: Bundesamt für Seeschifffahrt und Hydrographie (BSH) –
   <a href="https://www.bsh.de" target="_blank">www.bsh.de</a>.
+  Live-Pegel &amp; Wassertemperatur: PEGELONLINE (WSV) –
+  <a href="https://www.pegelonline.wsv.de" target="_blank">pegelonline.wsv.de</a>.
   Keine Gewähr auf Richtigkeit/Aktualität – offizielle Vorhersage siehe BSH-Webseite.
 </footer>
 
 <script>
-console.log("###### DATEI-VERSION: + Countdown, Wattzone, Tidenhub, Mondphase, PWA, Dark Mode ######");
+console.log("###### DATEI-VERSION: Ganztag-Fenster, Jetzt-Linie, Live-Pegel/Temp (Pegelonline) ######");
 
 /* ==========================================================
-   HIER DIE ECHTEN STATIONS-IDs EINTRAGEN
+   STATIONS-IDs
    ========================================================== */
-const STATION_ID_HAFEN = "wittduen_hafen"; // TODO: echte ID eintragen
+const STATION_ID_HAFEN = "wittduen_hafen"; // TODO: echte ID für BSH-Tideproxy eintragen
 const STATION_ID_ODDE  = "amrum_odde";     // TODO: echte ID eintragen
 
 const PROXY_BASE = "/api/tide?id=";
 
-// Wie viele Stunden vor/nach Niedrigwasser gilt als "Wattwander-Fenster"?
-//const WATT_FENSTER_STUNDEN = 2;
+// PEGELONLINE-Stations-UUIDs (für Live-Wasserstand + Wassertemperatur)
+const PEGEL_UUID_HAFEN = "9c4c11f2-0548-4555-beac-ecfd36f9bd74"; // Wittdün
+const PEGEL_UUID_ODDE  = null; // TODO: keine bekannte Pegelonline-Station für Amrum Odde
 
 let aktuelleStation = "hafen";
 let chart;
 let cacheHafen = null;
 let cacheOdde = null;
 
-// Die ECHTEN HW/NW-Punkte der gerade angezeigten Chart-Zeitspanne
 let echtePunkte = [];
-// ALLE echten Punkte (ungefiltert, für Countdown/Tidenhub-Suche)
 let volleDaten = [];
 
-// Für Neuzeichnen bei Dark-Mode-Wechsel
 let letzteChartDaten = null;
 let letzterChartLabel = null;
+let letzteLiveMessreihe = [];
 
-// Aktueller Zustand der Crosshair-Linie (null = nicht sichtbar)
 let crosshairState = null;
 
 function setStatus(text, isError = false) {
@@ -370,19 +368,13 @@ function extrahiereHWNW(apiResponse) {
       const roh = (e.forecast_value !== undefined && e.forecast_value !== null)
         ? e.forecast_value
         : e.tidal_prediction_value;
-      const hoehe = roh !== undefined && roh !== null ? parseFloat(roh) : null; // 👈 NEU
+      const hoehe = roh !== undefined && roh !== null ? parseFloat(roh) : null;
       return { zeit, hoehe, art: e.event };
     })
-    .filter(e => e.hoehe !== undefined && e.hoehe !== null && !isNaN(e.hoehe)) // 👈 NaN-Check ergänzt
+    .filter(e => e.hoehe !== undefined && e.hoehe !== null && !isNaN(e.hoehe))
     .sort((a, b) => a.zeit - b.zeit);
 }
 
-
-/* ============================================================
-   NEU: Berechnet den Tidenhub (Differenz zur vorherigen Tide)
-   für jeden Punkt und markiert über-/unterdurchschnittliche
-   Werte (grobe Näherung für Spring-/Nipptide).
-   ============================================================ */
 function berechneTidenhub(daten) {
   const hubs = [];
   for (let i = 1; i < daten.length; i++) {
@@ -409,11 +401,6 @@ function formatZeit(d) {
   return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 }
 
-/* ============================================================
-   NEU: Mondphase rein rechnerisch bestimmen (keine API nötig).
-   Basiert auf einem bekannten Referenz-Neumond + der Länge
-   des synodischen Monats. Näherung, kann ±1 Tag abweichen.
-   ============================================================ */
 function berechneMondphase(datum) {
   const referenzNeumond = new Date('2000-01-06T18:14:00Z').getTime();
   const synodischerMonatMs = 29.530588853 * 24 * 60 * 60 * 1000;
@@ -443,11 +430,6 @@ function aktualisiereMondphase() {
   document.getElementById('infoMondDatum').textContent = jetzt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-/* ============================================================
-   NEU: Countdown zur nächsten Tide (aus den ungefilterten
-   volleDaten, damit auch nachts kurz vor Mitternacht die
-   nächste Tide zuverlässig gefunden wird).
-   ============================================================ */
 function aktualisiereLiveInfo() {
   if (!volleDaten.length) return;
   const jetzt = new Date();
@@ -479,9 +461,72 @@ function aktualisiereLiveInfo() {
 }
 
 /* ============================================================
-   Kosinus-Interpolation zwischen zwei echten Punkten.
-   Wird für die dichte Kurve UND für den Crosshair benutzt,
-   damit beides exakt übereinstimmt.
+   LIVE-PEGEL / WASSERTEMPERATUR (PEGELONLINE)
+   ============================================================ */
+async function ladeLivePegelInfo(uuid) {
+  const url = `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations/${uuid}.json?includeTimeseries=true&includeCurrentMeasurement=true`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
+  return await resp.json();
+}
+
+async function ladeLiveMessreihe(uuid, tageZurueck = 3) {
+  const url = `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations/${uuid}/W/measurements.json?start=P${tageZurueck}D`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
+  const data = await resp.json();
+  return data.map(d => ({ zeit: new Date(d.timestamp), hoehe: d.value }));
+}
+
+async function aktualisiereLivePegel() {
+  const uuid = aktuelleStation === 'hafen' ? PEGEL_UUID_HAFEN : PEGEL_UUID_ODDE;
+  const badge = document.getElementById('liveBadge');
+  const tempWert = document.getElementById('infoWassertemp');
+  const tempZeit = document.getElementById('infoWassertempZeit');
+
+  if (!uuid) {
+    badge.style.display = 'none';
+    tempWert.textContent = '–';
+    tempZeit.textContent = 'keine Live-Daten für diese Station';
+    letzteLiveMessreihe = [];
+    if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
+    return;
+  }
+
+  try {
+    const info = await ladeLivePegelInfo(uuid);
+    const wSerie = info?.timeseries?.find(t => t.shortname === 'W');
+    const wtSerie = info?.timeseries?.find(t => t.shortname === 'WT');
+
+    if (wSerie?.currentMeasurement) {
+      const wert = wSerie.currentMeasurement.value;
+      const zeit = new Date(wSerie.currentMeasurement.timestamp);
+      badge.textContent = `${Math.round(wert)} cm am ${zeit.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})}, ${formatZeit(zeit)}`;
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    if (wtSerie?.currentMeasurement) {
+      const temp = wtSerie.currentMeasurement.value;
+      const zeitT = new Date(wtSerie.currentMeasurement.timestamp);
+      tempWert.textContent = `${temp.toFixed(1)} °C`;
+      tempZeit.textContent = `${formatZeit(zeitT)} Uhr`;
+    } else {
+      tempWert.textContent = '–';
+      tempZeit.textContent = '';
+    }
+
+    letzteLiveMessreihe = await ladeLiveMessreihe(uuid, 3);
+    if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
+  } catch (err) {
+    console.warn('Live-Pegel konnte nicht geladen werden:', err);
+    badge.style.display = 'none';
+  }
+}
+
+/* ============================================================
+   Kosinus-Interpolation für die BSH-Vorhersagekurve
    ============================================================ */
 function kosinusWert(p1, p2, zeitMs) {
   const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
@@ -580,69 +625,34 @@ canvasEl.addEventListener('touchmove', crosshairPointerMove, { passive: false })
 canvasEl.addEventListener('touchend', crosshairPointerLeave);
 canvasEl.addEventListener('touchcancel', crosshairPointerLeave);
 
-/* ============================================================
-   Farbschema je nach Hell/Dunkel-Modus (für alles, was per
-   Canvas gezeichnet wird und nicht automatisch auf CSS reagiert)
-   ============================================================ */
 function istDarkMode() {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 function holeChartFarben() {
   return istDarkMode() ? {
     linie: '#5aa9dc',
+    liveLinie: '#ffd166',
     verlaufStart: 'rgba(90,169,220,0.35)',
     verlaufEnde: 'rgba(90,169,220,0.02)',
     gitter: 'rgba(255,255,255,0.08)',
     tooltipBg: 'rgba(20,40,60,0.95)',
-    wattZone: 'rgba(60,190,130,0.22)',
     hw: '#ff6b81',
     nw: '#4ee08a',
-    crosshairLinie: 'rgba(150,190,220,0.6)'
+    crosshairLinie: 'rgba(150,190,220,0.6)',
+    jetztLinie: '#e08a2a'
   } : {
     linie: '#14507a',
+    liveLinie: '#c9820a',
     verlaufStart: 'rgba(20,80,122,0.35)',
     verlaufEnde: 'rgba(20,80,122,0.02)',
     gitter: 'rgba(0,0,0,0.05)',
     tooltipBg: 'rgba(13,59,92,0.92)',
-    wattZone: 'rgba(42,157,92,0.15)',
     hw: '#d1495b',
     nw: '#2a9d5c',
-    crosshairLinie: 'rgba(20,80,122,0.7)'
+    crosshairLinie: 'rgba(20,80,122,0.7)',
+    jetztLinie: '#d1495b'
   };
 }
-
-/* ============================================================
-   NEU: Plugin zeichnet die grüne Wattwander-Zone rund um jedes
-   Niedrigwasser im aktuell angezeigten Zeitraum.
-   ============================================================ */
-/*const wattZonePlugin = {
-  id: 'wattZone',
-  beforeDraw(chartInstanz) {
-    const daten = echtePunkte;
-    if (!daten.length) return;
-    const { ctx, chartArea } = chartInstanz;
-    const xSkala = chartInstanz.scales.x;
-    const farben = holeChartFarben();
-    const fensterMs = WATT_FENSTER_STUNDEN * 60 * 60 * 1000;
-
-    daten.filter(p => p.art === 'NW').forEach(p => {
-      const startZeit = p.zeit.getTime() - fensterMs;
-      const endZeit = p.zeit.getTime() + fensterMs;
-      let pixelStart = xSkala.getPixelForValue(startZeit);
-      let pixelEnd = xSkala.getPixelForValue(endZeit);
-
-      pixelStart = Math.max(pixelStart, chartArea.left);
-      pixelEnd = Math.min(pixelEnd, chartArea.right);
-      if (pixelEnd <= chartArea.left || pixelStart >= chartArea.right) return;
-
-      ctx.save();
-      ctx.fillStyle = farben.wattZone;
-      ctx.fillRect(pixelStart, chartArea.top, pixelEnd - pixelStart, chartArea.bottom - chartArea.top);
-      ctx.restore();
-    });
-  }
-};
-Chart.register(wattZonePlugin); */
 
 const crosshairPlugin = {
   id: 'crosshairLine',
@@ -703,6 +713,47 @@ const crosshairPlugin = {
 };
 Chart.register(crosshairPlugin);
 
+/* ============================================================
+   NEU: Vertikale "Jetzt"-Linie im Graph
+   ============================================================ */
+const jetztLinienPlugin = {
+  id: 'jetztLinie',
+  afterDraw(chartInstanz) {
+    const { ctx, chartArea, scales } = chartInstanz;
+    const xSkala = scales.x;
+    const jetzt = Date.now();
+    if (jetzt < xSkala.min || jetzt > xSkala.max) return;
+
+    const pixelX = xSkala.getPixelForValue(jetzt);
+    const farben = holeChartFarben();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = farben.jetztLinie;
+    ctx.moveTo(pixelX, chartArea.top);
+    ctx.lineTo(pixelX, chartArea.bottom);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    const text = 'Jetzt';
+    const breite = ctx.measureText(text).width + 10;
+    ctx.fillStyle = farben.jetztLinie;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(pixelX - breite / 2, chartArea.top - 2, breite, 16, 4);
+    else ctx.rect(pixelX - breite / 2, chartArea.top - 2, breite, 16);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, pixelX, chartArea.top + 10);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+};
+Chart.register(jetztLinienPlugin);
+
 function zeichneChart(daten, label) {
   const canvas = document.getElementById('chart');
   const ctx = canvas.getContext('2d');
@@ -720,24 +771,47 @@ function zeichneChart(daten, label) {
   verlauf.addColorStop(0, farben.verlaufStart);
   verlauf.addColorStop(1, farben.verlaufEnde);
 
+  // Fester Anzeigezeitraum: heute 00:00 bis in 2 Tagen 00:00
+  const heuteStart = new Date();
+  heuteStart.setHours(0, 0, 0, 0);
+  const anzeigeEnde = new Date(heuteStart);
+  anzeigeEnde.setDate(anzeigeEnde.getDate() + 2);
+
+  const datasets = [
+    {
+      label: 'BSH-Vorhersage',
+      data: dichteKurve.map(p => ({ x: p.zeit, y: p.hoehe })),
+      borderColor: farben.linie,
+      borderWidth: 2.5,
+      borderDash: [6, 4],
+      backgroundColor: verlauf,
+      fill: true,
+      tension: 0,
+      pointRadius: dichteKurve.map(p => p.echt ? 5 : 0),
+      pointHoverRadius: dichteKurve.map(p => p.echt ? 7 : 0),
+      pointBackgroundColor: dichteKurve.map(p => p.art === 'HW' ? farben.hw : p.art === 'NW' ? farben.nw : 'transparent'),
+      pointBorderColor: '#fff',
+      pointBorderWidth: dichteKurve.map(p => p.echt ? 2 : 0)
+    }
+  ];
+
+  if (letzteLiveMessreihe && letzteLiveMessreihe.length) {
+    datasets.push({
+      label: 'Live gemessen',
+      data: letzteLiveMessreihe.map(p => ({ x: p.zeit, y: p.hoehe })),
+      borderColor: farben.liveLinie,
+      borderWidth: 2.5,
+      borderDash: [],
+      fill: false,
+      tension: 0.15,
+      pointRadius: 0,
+      pointHoverRadius: 0
+    });
+  }
+
   chart = new Chart(ctx, {
     type: 'line',
-    data: {
-      datasets: [{
-        label: label,
-        data: dichteKurve.map(p => ({ x: p.zeit, y: p.hoehe })),
-        borderColor: farben.linie,
-        borderWidth: 2.5,
-        backgroundColor: verlauf,
-        fill: true,
-        tension: 0,
-        pointRadius: dichteKurve.map(p => p.echt ? 5 : 0),
-        pointHoverRadius: dichteKurve.map(p => p.echt ? 7 : 0),
-        pointBackgroundColor: dichteKurve.map(p => p.art === 'HW' ? farben.hw : p.art === 'NW' ? farben.nw : 'transparent'),
-        pointBorderColor: '#fff',
-        pointBorderWidth: dichteKurve.map(p => p.echt ? 2 : 0)
-      }]
-    },
+    data: { datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -745,6 +819,8 @@ function zeichneChart(daten, label) {
       scales: {
         x: {
           type: 'time',
+          min: heuteStart,
+          max: anzeigeEnde,
           time: { unit: 'hour', displayFormats: { hour: 'dd.MM HH:mm' } },
           title: { display: true, text: 'Datum / Uhrzeit' },
           grid: { color: farben.gitter }
@@ -762,8 +838,6 @@ function zeichneChart(daten, label) {
   });
 }
 
-// Bei Wechsel des Farbschemas (z.B. Handy wechselt abends in Dark Mode)
-// den Graph mit den neuen Farben neu zeichnen
 if (window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
@@ -780,7 +854,7 @@ function befuelleTabelle(daten) {
     if (tag !== letzterTag) {
       const tr = document.createElement('tr');
       tr.className = 'day-header';
-      tr.innerHTML = `<td colspan="5">${tag}</td>`;
+      tr.innerHTML = `<td colspan="4">${tag}</td>`;
       body.appendChild(tr);
       letzterTag = tag;
     }
@@ -795,7 +869,6 @@ function befuelleTabelle(daten) {
     }
 
     tr.innerHTML = `
-      <td></td>
       <td>${formatZeit(p.zeit)}</td>
       <td class="art">${p.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser'}</td>
       <td>${Math.round(p.hoehe)} cm</td>
@@ -825,24 +898,19 @@ async function holeUndZeigeDaten(stationKey) {
       return;
     }
 
-    // NEU: Tidenhub für jeden Punkt berechnen
     daten = berechneTidenhub(daten);
-    volleDaten = daten; // ungefiltert, für Countdown
+    volleDaten = daten;
 
-    const jetzt = new Date();
-
-    const in5Tagen = new Date(jetzt.getTime() + 5 * 24 * 60 * 60 * 1000);
-    const gefiltert5Tage = daten.filter(p => p.zeit >= jetzt && p.zeit <= in5Tagen);
-
-    const heuteStart = new Date(jetzt);
+    // Fester Anzeigezeitraum: heute 00:00 bis in 2 Tagen 00:00
+    const heuteStart = new Date();
     heuteStart.setHours(0, 0, 0, 0);
-    const heuteEnde = new Date(jetzt);
-    heuteEnde.setDate(heuteEnde.getDate() + 1);
-    heuteEnde.setHours(23, 59, 59, 999);
-    const gefiltertHeute = daten.filter(p => p.zeit >= heuteStart && p.zeit <= heuteEnde);
+    const anzeigeEnde = new Date(heuteStart);
+    anzeigeEnde.setDate(anzeigeEnde.getDate() + 2);
 
-    zeichneChart(gefiltertHeute.length ? gefiltertHeute : daten, label);
-    befuelleTabelle(gefiltert5Tage.length ? gefiltert5Tage : daten);
+    const gefiltert = daten.filter(p => p.zeit >= heuteStart && p.zeit < anzeigeEnde);
+
+    zeichneChart(gefiltert.length ? gefiltert : daten, label);
+    befuelleTabelle(gefiltert.length ? gefiltert : daten);
     aktualisiereLiveInfo();
 
     const forecastZeit = json?.properties?.forecast_timestamp;
@@ -853,6 +921,8 @@ async function holeUndZeigeDaten(stationKey) {
     console.error(err);
     setStatus(`Fehler beim Laden: ${err.message}`, true);
   }
+
+  aktualisiereLivePegel();
 }
 
 document.getElementById('btnHafen').addEventListener('click', () => {
@@ -868,15 +938,19 @@ document.getElementById('btnOdde').addEventListener('click', () => {
   holeUndZeigeDaten('odde');
 });
 
-// Countdown alle 30 Sekunden aktualisieren (ohne neu von der API zu laden)
-setInterval(aktualisiereLiveInfo, 30000);
+// Countdown + Jetzt-Linie alle 30 Sekunden aktualisieren
+setInterval(() => {
+  aktualisiereLiveInfo();
+  if (chart) chart.update('none');
+}, 30000);
 
 // Mondphase einmal berechnen + stündlich aktualisieren
 aktualisiereMondphase();
 setInterval(aktualisiereMondphase, 60 * 60 * 1000);
 
-// PWA: Service Worker registrieren, damit die Seite installierbar
-// wird und die zuletzt geladenen Daten offline verfügbar sind
+// Live-Pegel/Temperatur alle 5 Minuten aktualisieren
+setInterval(aktualisiereLivePegel, 5 * 60 * 1000);
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('service-worker.js').catch(err => {
