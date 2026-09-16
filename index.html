@@ -289,7 +289,7 @@
     <span><span class="legende-punkt legende-hw"></span>Hochwasser</span>
     <span><span class="legende-punkt legende-nw"></span>Niedrigwasser</span>
     <span><span class="legende-linie gestrichelt"></span>BSH-Vorhersage</span>
-    <span><span class="legende-linie" style="border-color:#c9820a;"></span>Live gemessen</span>
+    <span><span class="legende-linie"></span>Live gemessen</span>
     <span><span class="legende-punkt legende-jetzt"></span>Jetzt</span>
   </div>
 </div>
@@ -673,7 +673,7 @@ function istDarkMode() {
 function holeChartFarben() {
   return istDarkMode() ? {
     linie: '#5aa9dc',
-    liveLinie: '#ffd166',
+    liveLinie: '#8ec9f0',
     verlaufStart: 'rgba(90,169,220,0.35)',
     verlaufEnde: 'rgba(90,169,220,0.02)',
     gitter: 'rgba(255,255,255,0.08)',
@@ -684,7 +684,7 @@ function holeChartFarben() {
     jetztLinie: '#e08a2a'
   } : {
     linie: '#14507a',
-    liveLinie: '#c9820a',
+    liveLinie: '#1f8fd1',
     verlaufStart: 'rgba(20,80,122,0.35)',
     verlaufEnde: 'rgba(20,80,122,0.02)',
     gitter: 'rgba(0,0,0,0.05)',
