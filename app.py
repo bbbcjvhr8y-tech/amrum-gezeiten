@@ -11,61 +11,116 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 BSH_BASE = "https://gdi.bsh.de/ldproxy/rest/services/WaterLevelForecast/collections/waterlevelforecastdata/items/"
 PEGEL_BASE = "https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations/"
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_NONE
 
-# ==========================================================
-# Cache-Datei, in der wir alle jemals gesehenen HW/NW-Ereignisse
-# je Station dauerhaft speichern. So bleiben auch bereits
-# vergangene Tiden des heutigen Tages sichtbar, obwohl die
-# BSH-API selbst nur noch zukünftige Tiden liefert.
-# ==========================================================
-CACHE_DATEI = "tide_cache.json"
 AUFBEWAHRUNG_TAGE = 4  # alte Einträge nach X Tagen aus dem Cache entfernen
 
 
-def lade_cache():
-    if not os.path.exists(CACHE_DATEI):
-        return {}
+# ==========================================================
+# Hilfsfunktion: Beliebige Anfrage an die Supabase REST-API
+# (PostgREST) senden.
+# ==========================================================
+def supabase_request(method, path, body=None, params=None, extra_headers=None):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL / SUPABASE_KEY sind nicht gesetzt")
+
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        raw = resp.read()
+        return json.loads(raw) if raw else None
+
+
+def speichere_ereignisse_supabase(station_id, ereignisse):
+    """Speichert (upsert) alle übergebenen HW/NW-Ereignisse dauerhaft in Supabase."""
+    zeilen = []
+    for e in ereignisse:
+        ts = e.get("event_timestamp")
+        art = e.get("event")
+        wert = e.get("forecast_value")
+        if wert is None:
+            wert = e.get("tidal_prediction_value")
+        if ts is None or art is None or wert is None:
+            continue
+        zeilen.append({
+            "station_id": station_id,
+            "event_timestamp": ts,
+            "event": art,
+            "value": wert
+        })
+
+    if not zeilen:
+        return
+
     try:
-        with open(CACHE_DATEI, "r", encoding="utf-8") as f:
-            return json.load(f)
+        supabase_request(
+            "POST",
+            "tide_events",
+            body=zeilen,
+            params={"on_conflict": "station_id,event_timestamp"},
+            extra_headers={"Prefer": "resolution=merge-duplicates"}
+        )
     except Exception as e:
-        print(f"Cache konnte nicht gelesen werden: {e}")
-        return {}
+        print(f"Supabase-Speicherfehler: {e}")
 
 
-def speichere_cache(cache):
+def lade_ereignisse_supabase(station_id):
+    """Lädt alle bekannten HW/NW-Ereignisse einer Station aus Supabase,
+    im gleichen Format, das das Frontend erwartet."""
     try:
-        with open(CACHE_DATEI, "w", encoding="utf-8") as f:
-            json.dump(cache, f)
+        ergebnis = supabase_request(
+            "GET",
+            "tide_events",
+            params={
+                "station_id": f"eq.{station_id}",
+                "order": "event_timestamp.asc"
+            }
+        )
     except Exception as e:
-        print(f"Cache konnte nicht gespeichert werden: {e}")
+        print(f"Supabase-Lesefehler: {e}")
+        return []
+
+    return [
+        {
+            "event_timestamp": r["event_timestamp"],
+            "event": r["event"],
+            "forecast_value": r["value"]
+        }
+        for r in (ergebnis or [])
+    ]
 
 
-def raeume_alte_eintraege_auf(eintraege):
-    grenze = datetime.now(timezone.utc) - timedelta(days=AUFBEWAHRUNG_TAGE)
-    ergebnis = []
-    for e in eintraege:
-        try:
-            zeit = datetime.fromisoformat(e["event_timestamp"].replace("Z", "+00:00"))
-            if zeit >= grenze:
-                ergebnis.append(e)
-        except Exception:
-            ergebnis.append(e)  # im Zweifel behalten
-    return ergebnis
-
-
-def merge_ereignisse(alt, neu):
-    """Merged zwei Listen von HW/NW-Ereignissen anhand des Zeitstempels,
-    neue Werte überschreiben alte (falls BSH eine Vorhersage aktualisiert)."""
-    nach_zeit = {e["event_timestamp"]: e for e in alt}
-    for e in neu:
-        nach_zeit[e["event_timestamp"]] = e
-    ergebnis = list(nach_zeit.values())
-    ergebnis.sort(key=lambda e: e["event_timestamp"])
-    return ergebnis
+def raeume_alte_eintraege_auf_supabase(station_id, tage=AUFBEWAHRUNG_TAGE):
+    grenze = (datetime.now(timezone.utc) - timedelta(days=tage)).isoformat()
+    try:
+        supabase_request(
+            "DELETE",
+            "tide_events",
+            params={
+                "station_id": f"eq.{station_id}",
+                "event_timestamp": f"lt.{grenze}"
+            }
+        )
+    except Exception as e:
+        print(f"Supabase-Aufräumfehler: {e}")
 
 
 @app.route('/')
@@ -80,6 +135,8 @@ def tide():
         return jsonify({"error": "Fehlender Parameter 'id'"}), 400
 
     bsh_url = f"{BSH_BASE}{station_id}/?f=json"
+    frisch = None
+    bsh_fehler = None
 
     try:
         req = urllib.request.Request(bsh_url, headers={"User-Agent": "Mozilla/5.0"})
@@ -87,51 +144,33 @@ def tide():
             data = response.read()
         frisch = json.loads(data)
     except urllib.error.HTTPError as e:
-        # Wenn BSH gerade nicht erreichbar ist, versuchen wir trotzdem,
-        # aus dem Cache zu antworten, damit die Seite nicht leer bleibt.
-        frisch = None
         bsh_fehler = f"BSH-API Fehler: {e.reason}"
     except Exception as e:
-        frisch = None
         bsh_fehler = str(e)
 
-    cache = lade_cache()
-    alte_liste = cache.get(station_id, [])
-
-    neue_liste = []
+    # Frische Ereignisse (falls vorhanden) dauerhaft in Supabase sichern
     if frisch is not None:
         neue_liste = frisch.get("properties", {}).get("high_water_low_water", [])
+        speichere_ereignisse_supabase(station_id, neue_liste)
+        raeume_alte_eintraege_auf_supabase(station_id)
 
-    gemergte_liste = merge_ereignisse(alte_liste, neue_liste)
-    gemergte_liste = raeume_alte_eintraege_auf(gemergte_liste)
+    # Immer den komplett gemergten Datenbestand aus Supabase lesen
+    gemergte_liste = lade_ereignisse_supabase(station_id)
 
-    cache[station_id] = gemergte_liste
-    speichere_cache(cache)
-
-    if frisch is not None:
-        antwort = frisch
-        antwort["properties"]["high_water_low_water"] = gemergte_liste
-    else:
-        if not gemergte_liste:
+    if not gemergte_liste:
+        if bsh_fehler:
             return jsonify({"error": bsh_fehler}), 502
-        # Fallback-Antwort nur aus dem Cache, wenn BSH nicht erreichbar war
-        antwort = {"properties": {"high_water_low_water": gemergte_liste}}
+        return jsonify({"properties": {"high_water_low_water": []}})
+
+    antwort = {"properties": {"high_water_low_water": gemergte_liste}}
+    if frisch is not None:
+        antwort["properties"]["forecast_timestamp"] = frisch.get("properties", {}).get("forecast_timestamp")
 
     return jsonify(antwort)
 
 
 @app.route('/api/pegel')
 def pegel():
-    """
-    Proxy für PEGELONLINE (Live-Wasserstand + Wassertemperatur),
-    damit der Browser keine direkten Cross-Origin-Anfragen stellen muss.
-
-    Query-Parameter:
-      - uuid: Stations-UUID (Pflicht)
-      - mode: 'info' (Stationsinfo + currentMeasurement, Default)
-              oder 'messreihe' (Zeitreihe der letzten Tage)
-      - tage: nur bei mode=messreihe, Anzahl Tage zurück (Default 3)
-    """
     uuid = request.args.get('uuid')
     mode = request.args.get('mode', 'info')
     tage = request.args.get('tage', '3')
