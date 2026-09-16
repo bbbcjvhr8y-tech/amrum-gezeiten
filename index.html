@@ -501,12 +501,12 @@ async function ladeKennwerte(uuid) {
 }
 
 async function aktualisiereKennwerte() {
-  const uuid = aktuelleStation === 'hafen' ? PEGEL_UUID_HAFEN : PEGEL_UUID_ODDE;
-  if (!uuid) {
+  <!-- const uuid = aktuelleStation === 'hafen' ? PEGEL_UUID_HAFEN : PEGEL_UUID_ODDE;
+  <!-- if (!uuid) { --> -->
     aktuellesMThw = FALLBACK_MTHW[aktuelleStation];
     aktuellesMTnw = FALLBACK_MTNW[aktuelleStation];
     if (chart) chart.update('none');
-    return;
+    <!-- return; -->
   }
   try {
     const { mthw, mtnw } = await ladeKennwerte(uuid);
