@@ -174,14 +174,15 @@ def pegel():
     uuid = request.args.get('uuid')
     mode = request.args.get('mode', 'info')
     tage = request.args.get('tage', '3')
+    reihe = request.args.get('reihe', 'W')  # 👈 NEU: welche Zeitreihe (W oder WT)
 
     if not uuid:
         return jsonify({"error": "Fehlender Parameter 'uuid'"}), 400
 
     if mode == 'messreihe':
-        pegel_url = f"{PEGEL_BASE}{uuid}/W/measurements.json?start=P{tage}D"
+        pegel_url = f"{PEGEL_BASE}{uuid}/{reihe}/measurements.json?start=P{tage}D"
     elif mode == 'kennwerte':
-        pegel_url = f"{PEGEL_BASE}{uuid}/W/characteristicvalues.json"
+        pegel_url = f"{PEGEL_BASE}{uuid}/{reihe}/characteristicvalues.json"
     else:
         pegel_url = f"{PEGEL_BASE}{uuid}.json?includeTimeseries=true&includeCurrentMeasurement=true"
 
@@ -194,6 +195,7 @@ def pegel():
         return jsonify({"error": f"Pegelonline-API Fehler: {e.reason}"}), e.code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 if __name__ == '__main__':

@@ -150,6 +150,11 @@
     .chart-wrapper { height: 260px; }
   }
 
+  .chart-wrapper-temp { height: 220px; }
+  @media (max-width: 480px) {
+    .chart-wrapper-temp { height: 180px; }
+  }
+
   #chart {
     position: absolute;
     top: 0; left: 0;
@@ -272,11 +277,13 @@
     <div class="info-value" id="infoWassertemp">–</div>
     <div class="info-sub" id="infoWassertempZeit"></div>
   </div>
-  <div class="info-box">
-    <div class="info-label">Mondphase</div>
-    <div class="info-value" id="infoMondphase">–</div>
-    <div class="info-sub" id="infoMondDatum"></div>
-  </div>
+ <div class="info-box">
+  <div class="info-label">Mondphase</div>
+  <div class="info-value" id="infoMondphase">–</div>
+  <div class="info-sub" id="infoMondDatum"></div>
+  <div class="info-sub" id="infoGezeitenlage" style="margin-top:4px; font-weight:600;"></div>
+</div>
+
 </div>
 
 <div class="chart-card">
@@ -294,9 +301,21 @@
   </div>
 </div>
 
+<div class="chart-card" style="margin-top:20px;">
+  <h3 style="margin:4px 8px 10px; color:var(--blau-dunkel); font-size:1rem;">🌡️ Wassertemperatur (Live gemessen)</h3>
+  <div id="tempHinweis" class="info-sub" style="text-align:center; display:none;"></div>
+  <div class="chart-wrapper chart-wrapper-temp">
+    <canvas id="chartTemp"></canvas>
+  </div>
+  <div class="chart-legende">
+    <span><span class="legende-linie"></span>Wassertemperatur (gemessen)</span>
+    <span><span class="legende-punkt legende-jetzt"></span>Jetzt</span>
+  </div>
+</div>
+
 <table id="tabelle">
   <thead>
-    <tr><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th></tr>
+    <tr><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th><th>Steig-/Falldauer</th></tr>
   </thead>
   <tbody id="tabelleBody"></tbody>
 </table>
@@ -345,7 +364,8 @@ let volleDaten = [];
 let letzteChartDaten = null;
 let letzterChartLabel = null;
 let letzteLiveMessreihe = [];
-
+let chartTemp;
+let letzteTempMessreihe = [];
 let crosshairState = null;
 
 function setStatus(text, isError = false) {
@@ -389,16 +409,18 @@ function berechneTidenhub(daten) {
   const durchschnitt = hubs.length ? hubs.reduce((a, b) => a + b, 0) / hubs.length : 0;
 
   return daten.map((p, i) => {
-    if (i === 0) return { ...p, hub: null, hubTyp: null };
+    if (i === 0) return { ...p, hub: null, hubTyp: null, dauerMin: null };
     const hub = Math.abs(p.hoehe - daten[i - 1].hoehe);
+    const dauerMin = (p.zeit.getTime() - daten[i - 1].zeit.getTime()) / 60000;
     let hubTyp = null;
     if (durchschnitt > 0) {
       if (hub > durchschnitt * 1.12) hubTyp = 'spring';
       else if (hub < durchschnitt * 0.88) hubTyp = 'nipp';
     }
-    return { ...p, hub, hubTyp };
+    return { ...p, hub, hubTyp, dauerMin };
   });
 }
+
 
 function formatDatum(d) {
   return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -466,6 +488,28 @@ function aktualisiereLiveInfo() {
   detailEl.textContent = detailText;
 }
 
+function ermittleGezeitenlage() {
+  if (!volleDaten.length) return undefined;
+  const jetzt = Date.now();
+  let naechstes = volleDaten[0];
+  let minDiff = Math.abs(naechstes.zeit.getTime() - jetzt);
+  for (const p of volleDaten) {
+    const diff = Math.abs(p.zeit.getTime() - jetzt);
+    if (diff < minDiff) { minDiff = diff; naechstes = p; }
+  }
+  return naechstes.hubTyp; // 'spring' | 'nipp' | null
+}
+
+function aktualisiereGezeitenlage() {
+  const el = document.getElementById('infoGezeitenlage');
+  if (!el) return;
+  const lage = ermittleGezeitenlage();
+  if (lage === 'spring') el.textContent = '🔺 Springzeit (Springtide)';
+  else if (lage === 'nipp') el.textContent = '🔻 Nippzeit (Nipptide)';
+  else if (lage === null) el.textContent = '➖ normale Tide';
+  else el.textContent = '';
+}
+
 /* ============================================================
    LIVE-PEGEL / WASSERTEMPERATUR (PEGELONLINE)
    ============================================================ */
@@ -476,13 +520,23 @@ async function ladeLivePegelInfo(uuid) {
   return await resp.json();
 }
 
-async function ladeLiveMessreihe(uuid, tageZurueck = 3) {
-  const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=messreihe&tage=${tageZurueck}`;
+async function ladeMessreihe(uuid, reihe, tageZurueck = 3) {
+  const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=messreihe&reihe=${reihe}&tage=${tageZurueck}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('Pegelonline-Fehler ' + resp.status);
   const data = await resp.json();
-  return data.map(d => ({ zeit: new Date(d.timestamp), hoehe: d.value }));
+  return data.map(d => ({ zeit: new Date(d.timestamp), wert: d.value }));
 }
+
+async function ladeLiveMessreihe(uuid, tageZurueck = 3) {
+  const daten = await ladeMessreihe(uuid, 'W', tageZurueck);
+  return daten.map(d => ({ zeit: d.zeit, hoehe: d.wert }));
+}
+
+async function ladeTemperaturMessreihe(uuid, tageZurueck = 3) {
+  return await ladeMessreihe(uuid, 'WT', tageZurueck);
+}
+
 
 async function ladeKennwerte(uuid) {
   const url = `/api/pegel?uuid=${encodeURIComponent(uuid)}&mode=kennwerte`;
@@ -525,15 +579,24 @@ async function aktualisiereLivePegel() {
   const badge = document.getElementById('liveBadge');
   const tempWert = document.getElementById('infoWassertemp');
   const tempZeit = document.getElementById('infoWassertempZeit');
+  const tempHinweis = document.getElementById('tempHinweis');
 
   if (!uuid) {
     badge.style.display = 'none';
     tempWert.textContent = '–';
     tempZeit.textContent = 'keine Live-Daten für diese Station';
     letzteLiveMessreihe = [];
+    letzteTempMessreihe = [];
+    if (tempHinweis) {
+      tempHinweis.textContent = 'Keine Live-Temperaturdaten für diese Station verfügbar.';
+      tempHinweis.style.display = 'block';
+    }
     if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
+    zeichneTemperaturChart();
     return;
   }
+
+  if (tempHinweis) tempHinweis.style.display = 'none';
 
   try {
     const info = await ladeLivePegelInfo(uuid);
@@ -560,12 +623,21 @@ async function aktualisiereLivePegel() {
     }
 
     letzteLiveMessreihe = await ladeLiveMessreihe(uuid, 3);
+    try {
+      letzteTempMessreihe = await ladeTemperaturMessreihe(uuid, 3);
+    } catch (err) {
+      console.warn('Temperatur-Messreihe konnte nicht geladen werden:', err);
+      letzteTempMessreihe = [];
+    }
+
     if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
+    zeichneTemperaturChart();
   } catch (err) {
     console.warn('Live-Pegel konnte nicht geladen werden:', err);
     badge.style.display = 'none';
   }
 }
+
 
 /* ============================================================
    Kosinus-Interpolation für die BSH-Vorhersagekurve
@@ -597,6 +669,20 @@ function erzeugeDichteKurve(daten, schrittMinuten = 5) {
   return ergebnis;
 }
 
+function findeGemessenenWert(zeitMs) {
+  const daten = letzteLiveMessreihe;
+  if (!daten || daten.length < 2) return null;
+  if (zeitMs < daten[0].zeit.getTime() || zeitMs > daten[daten.length - 1].zeit.getTime()) return null;
+
+  let i = 0;
+  while (i < daten.length - 1 && daten[i + 1].zeit.getTime() < zeitMs) i++;
+  const p1 = daten[i], p2 = daten[i + 1];
+  const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
+  if (t2 === t1) return p1.hoehe;
+  const anteil = (zeitMs - t1) / (t2 - t1);
+  return p1.hoehe + (p2.hoehe - p1.hoehe) * anteil;
+}
+
 function berechneCrosshairInfo(chartInstanz, pixelX) {
   const daten = echtePunkte;
   if (!daten.length) return null;
@@ -608,33 +694,45 @@ function berechneCrosshairInfo(chartInstanz, pixelX) {
   const zeitWert = xSkala.getValueForPixel(x);
 
   const erstesP = daten[0], letztesP = daten[daten.length - 1];
+  let ergebnis;
 
   if (zeitWert <= erstesP.zeit.getTime()) {
-    return { pixelX: xSkala.getPixelForValue(erstesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(erstesP.hoehe), zeit: erstesP.zeit, hoehe: erstesP.hoehe, echt: true, art: erstesP.art };
-  }
-  if (zeitWert >= letztesP.zeit.getTime()) {
-    return { pixelX: xSkala.getPixelForValue(letztesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(letztesP.hoehe), zeit: letztesP.zeit, hoehe: letztesP.hoehe, echt: true, art: letztesP.art };
+    ergebnis = { pixelX: xSkala.getPixelForValue(erstesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(erstesP.hoehe), zeit: erstesP.zeit, hoehe: erstesP.hoehe, echt: true, art: erstesP.art };
+  } else if (zeitWert >= letztesP.zeit.getTime()) {
+    ergebnis = { pixelX: xSkala.getPixelForValue(letztesP.zeit.getTime()), pixelY: ySkala.getPixelForValue(letztesP.hoehe), zeit: letztesP.zeit, hoehe: letztesP.hoehe, echt: true, art: letztesP.art };
+  } else {
+    let i = 0;
+    while (i < daten.length - 1 && daten[i + 1].zeit.getTime() < zeitWert) i++;
+    const p1 = daten[i], p2 = daten[i + 1];
+    const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
+
+    const pixelP1 = xSkala.getPixelForValue(t1);
+    const pixelP2 = xSkala.getPixelForValue(t2);
+    const schwelle = 14;
+
+    if (Math.abs(x - pixelP1) <= schwelle) {
+      ergebnis = { pixelX: pixelP1, pixelY: ySkala.getPixelForValue(p1.hoehe), zeit: p1.zeit, hoehe: p1.hoehe, echt: true, art: p1.art };
+    } else if (Math.abs(x - pixelP2) <= schwelle) {
+      ergebnis = { pixelX: pixelP2, pixelY: ySkala.getPixelForValue(p2.hoehe), zeit: p2.zeit, hoehe: p2.hoehe, echt: true, art: p2.art };
+    } else {
+      const hoehe = kosinusWert(p1, p2, zeitWert);
+      ergebnis = { pixelX: x, pixelY: ySkala.getPixelForValue(hoehe), zeit: new Date(zeitWert), hoehe: hoehe, echt: false, art: null };
+    }
   }
 
-  let i = 0;
-  while (i < daten.length - 1 && daten[i + 1].zeit.getTime() < zeitWert) i++;
-  const p1 = daten[i], p2 = daten[i + 1];
-  const t1 = p1.zeit.getTime(), t2 = p2.zeit.getTime();
-
-  const pixelP1 = xSkala.getPixelForValue(t1);
-  const pixelP2 = xSkala.getPixelForValue(t2);
-  const schwelle = 14;
-
-  if (Math.abs(x - pixelP1) <= schwelle) {
-    return { pixelX: pixelP1, pixelY: ySkala.getPixelForValue(p1.hoehe), zeit: p1.zeit, hoehe: p1.hoehe, echt: true, art: p1.art };
-  }
-  if (Math.abs(x - pixelP2) <= schwelle) {
-    return { pixelX: pixelP2, pixelY: ySkala.getPixelForValue(p2.hoehe), zeit: p2.zeit, hoehe: p2.hoehe, echt: true, art: p2.art };
+  // NEU: In der Vergangenheit zusätzlich den tatsächlich gemessenen Pegel ermitteln
+  const zeitMs = ergebnis.zeit.getTime();
+  if (zeitMs <= Date.now()) {
+    const gemessenWert = findeGemessenenWert(zeitMs);
+    if (gemessenWert !== null) {
+      ergebnis.gemessen = gemessenWert;
+      ergebnis.gemessenPixelY = ySkala.getPixelForValue(gemessenWert);
+    }
   }
 
-  const hoehe = kosinusWert(p1, p2, zeitWert);
-  return { pixelX: x, pixelY: ySkala.getPixelForValue(hoehe), zeit: new Date(zeitWert), hoehe: hoehe, echt: false, art: null };
+  return ergebnis;
 }
+
 
 function crosshairPointerMove(evt) {
   if (!chart) return;
@@ -701,7 +799,7 @@ const crosshairPlugin = {
   afterDraw(chartInstanz) {
     if (!crosshairState) return;
     const { ctx, chartArea } = chartInstanz;
-    const { pixelX, pixelY, zeit, hoehe, echt, art } = crosshairState;
+    const { pixelX, pixelY, zeit, hoehe, echt, art, gemessen, gemessenPixelY } = crosshairState;
     const farben = holeChartFarben();
 
     ctx.save();
@@ -722,17 +820,30 @@ const crosshairPlugin = {
     ctx.fill();
     ctx.stroke();
 
+    // NEU: Zweiter Marker für den tatsächlich gemessenen Wert
+    if (gemessen !== undefined && gemessen !== null) {
+      ctx.beginPath();
+      ctx.arc(pixelX, gemessenPixelY, 6, 0, Math.PI * 2);
+      ctx.fillStyle = farben.liveLinie;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+    }
+
     const zeitText = zeit.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
     const datumText = zeit.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
     const zeile1 = `${datumText}, ${zeitText}`;
-    const zeile2 = `${Math.round(hoehe)} cm${echt ? '' : ' (geschätzt)'}`;
+    const zeile2 = `Vorhersage: ${Math.round(hoehe)} cm${echt ? '' : ' (geschätzt)'}`;
+    const zeile3 = (gemessen !== undefined && gemessen !== null) ? `Gemessen: ${Math.round(gemessen)} cm` : null;
 
     ctx.font = 'bold 13px system-ui, sans-serif';
     const breite1 = ctx.measureText(zeile1).width;
     ctx.font = '13px system-ui, sans-serif';
     const breite2 = ctx.measureText(zeile2).width;
-    const boxBreite = Math.max(breite1, breite2) + 20;
-    const boxHoehe = 44;
+    const breite3 = zeile3 ? ctx.measureText(zeile3).width : 0;
+    const boxBreite = Math.max(breite1, breite2, breite3) + 20;
+    const boxHoehe = zeile3 ? 62 : 44;
 
     let boxX = pixelX + 10;
     if (boxX + boxBreite > chartArea.right) boxX = pixelX - boxBreite - 10;
@@ -749,10 +860,12 @@ const crosshairPlugin = {
     ctx.fillText(zeile1, boxX + 10, boxY + 18);
     ctx.font = '13px system-ui, sans-serif';
     ctx.fillText(zeile2, boxX + 10, boxY + 36);
+    if (zeile3) ctx.fillText(zeile3, boxX + 10, boxY + 54);
 
     ctx.restore();
   }
 };
+
 Chart.register(crosshairPlugin);
 
 /* ============================================================
@@ -922,11 +1035,68 @@ function zeichneChart(daten, label) {
   });
 }
 
+function zeichneTemperaturChart() {
+  const canvas = document.getElementById('chartTemp');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (chartTemp) chartTemp.destroy();
+
+  const farben = holeChartFarben();
+
+  const heuteStart = new Date();
+  heuteStart.setHours(0, 0, 0, 0);
+  const anzeigeEnde = new Date(heuteStart);
+  anzeigeEnde.setDate(anzeigeEnde.getDate() + 2);
+
+  chartTemp = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: 'Wassertemperatur',
+        data: letzteTempMessreihe.map(p => ({ x: p.zeit, y: p.wert })),
+        borderColor: farben.liveLinie,
+        borderWidth: 2.5,
+        fill: false,
+        tension: 0.15,
+        pointRadius: 0,
+        pointHoverRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: {
+          type: 'time',
+          min: heuteStart,
+          max: anzeigeEnde,
+          time: { unit: 'hour', displayFormats: { hour: 'dd.MM HH:mm' } },
+          title: { display: true, text: 'Datum / Uhrzeit' },
+          grid: { color: farben.gitter }
+        },
+        y: {
+          title: { display: true, text: 'Temperatur (°C)' },
+          grid: { color: farben.gitter }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: true, mode: 'nearest', intersect: false },
+        crosshairLine: false,
+        kennwertLinien: false
+      }
+    }
+  });
+}
+
 if (window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (letzteChartDaten) zeichneChart(letzteChartDaten, letzterChartLabel);
+    zeichneTemperaturChart();
   });
 }
+
 
 function befuelleTabelle(daten) {
   const body = document.getElementById('tabelleBody');
@@ -938,7 +1108,7 @@ function befuelleTabelle(daten) {
     if (tag !== letzterTag) {
       const tr = document.createElement('tr');
       tr.className = 'day-header';
-      tr.innerHTML = `<td colspan="4">${tag}</td>`;
+      tr.innerHTML = `<td colspan="5">${tag}</td>`;
       body.appendChild(tr);
       letzterTag = tag;
     }
@@ -952,15 +1122,25 @@ function befuelleTabelle(daten) {
       hubHtml = `<span class="${badgeClass}">${Math.round(p.hub)} cm${badgeIcon}</span>`;
     }
 
+    let dauerHtml = '–';
+    if (p.dauerMin !== null && p.dauerMin !== undefined) {
+      const std = Math.floor(p.dauerMin / 60);
+      const min = Math.round(p.dauerMin % 60);
+      const label = p.art === 'HW' ? '↑ Steigdauer' : '↓ Falldauer';
+      dauerHtml = `${label}: ${std} Std ${min} Min`;
+    }
+
     tr.innerHTML = `
       <td>${formatZeit(p.zeit)}</td>
       <td class="art">${p.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser'}</td>
       <td>${Math.round(p.hoehe)} cm</td>
       <td>${hubHtml}</td>
+      <td>${dauerHtml}</td>
     `;
     body.appendChild(tr);
   });
 }
+
 
 async function holeUndZeigeDaten(stationKey) {
   setStatus("Lade Daten…");
@@ -1003,6 +1183,7 @@ async function holeUndZeigeDaten(stationKey) {
 	zeichneChart(gefiltert.length ? gefiltert : daten, label);
 	befuelleTabelle(gefiltertTabelle.length ? gefiltertTabelle : daten);
 	aktualisiereLiveInfo();
+	aktualisiereGezeitenlage();
 
     const forecastZeit = json?.properties?.forecast_timestamp;
     setStatus(forecastZeit
@@ -1033,6 +1214,7 @@ document.getElementById('btnOdde').addEventListener('click', () => {
 // Countdown + Jetzt-Linie alle 30 Sekunden aktualisieren
 setInterval(() => {
   aktualisiereLiveInfo();
+  aktualisiereGezeitenlage();
   if (chart) chart.update('none');
 }, 30000);
 
