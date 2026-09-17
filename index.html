@@ -488,27 +488,46 @@ function aktualisiereLiveInfo() {
   detailEl.textContent = detailText;
 }
 
-function ermittleGezeitenlage() {
-  if (!volleDaten.length) return undefined;
-  const jetzt = Date.now();
-  let naechstes = volleDaten[0];
-  let minDiff = Math.abs(naechstes.zeit.getTime() - jetzt);
-  for (const p of volleDaten) {
-    const diff = Math.abs(p.zeit.getTime() - jetzt);
-    if (diff < minDiff) { minDiff = diff; naechstes = p; }
-  }
-  return naechstes.hubTyp; // 'spring' | 'nipp' | null
+/* ============================================================
+   Spring-/Nipp-/Mittzeit exakt nach BSH-Definition:
+   Springzeit = 4 Tage ab dem Tag von Neumond/Vollmond
+   Nippzeit   = 4 Tage ab dem Tag von erstem/letztem Viertel
+   Mittzeit   = alles dazwischen
+   ============================================================ */
+function ermittleGezeitenlage(datum) {
+  const referenzNeumond = new Date('2000-01-06T18:14:00Z').getTime();
+  const synodischerMonatTage = 29.530588853;
+  const msProTag = 24 * 60 * 60 * 1000;
+
+  let alterTage = ((datum.getTime() - referenzNeumond) / msProTag) % synodischerMonatTage;
+  if (alterTage < 0) alterTage += synodischerMonatTage;
+
+  const anker = [
+    { tage: 0, typ: 'spring' },                              // Neumond
+    { tage: synodischerMonatTage / 4, typ: 'nipp' },         // erstes Viertel
+    { tage: synodischerMonatTage / 2, typ: 'spring' },       // Vollmond
+    { tage: (3 * synodischerMonatTage) / 4, typ: 'nipp' }    // letztes Viertel
+  ];
+
+  let bester = null;
+  anker.forEach(a => {
+    let diff = alterTage - a.tage;
+    if (diff < 0) diff += synodischerMonatTage;
+    if (bester === null || diff < bester.diff) bester = { diff, typ: a.typ };
+  });
+
+  return bester.diff < 4 ? bester.typ : 'mitt';
 }
 
 function aktualisiereGezeitenlage() {
   const el = document.getElementById('infoGezeitenlage');
   if (!el) return;
-  const lage = ermittleGezeitenlage();
-  if (lage === 'spring') el.textContent = '🔺 Springzeit (Springtide)';
-  else if (lage === 'nipp') el.textContent = '🔻 Nippzeit (Nipptide)';
-  else if (lage === null) el.textContent = '➖ normale Tide';
-  else el.textContent = '';
+  const lage = ermittleGezeitenlage(new Date());
+  if (lage === 'spring') el.textContent = '🔺 Springzeit';
+  else if (lage === 'nipp') el.textContent = '🔻 Nippzeit';
+  else el.textContent = '➖ Mittzeit';
 }
+
 
 /* ============================================================
    LIVE-PEGEL / WASSERTEMPERATUR (PEGELONLINE)
@@ -1214,13 +1233,16 @@ document.getElementById('btnOdde').addEventListener('click', () => {
 // Countdown + Jetzt-Linie alle 30 Sekunden aktualisieren
 setInterval(() => {
   aktualisiereLiveInfo();
-  aktualisiereGezeitenlage();
   if (chart) chart.update('none');
 }, 30000);
 
 // Mondphase einmal berechnen + stündlich aktualisieren
 aktualisiereMondphase();
-setInterval(aktualisiereMondphase, 60 * 60 * 1000);
+aktualisiereGezeitenlage(); // 👈 NEU
+setInterval(() => {
+  aktualisiereMondphase();
+  aktualisiereGezeitenlage(); // 👈 NEU
+}, 60 * 60 * 1000);
 
 // Live-Pegel/Temperatur alle 5 Minuten aktualisieren
 setInterval(aktualisiereLivePegel, 5 * 60 * 1000);
