@@ -208,6 +208,10 @@
   .legende-nw { background: var(--akzent-gruen); }
   .legende-jetzt { background: var(--akzent-orange); }
 
+  .tabelle-heute {
+    margin-bottom: 20px;
+  }
+
   table {
     width: 100%;
     border-collapse: collapse;
@@ -283,6 +287,16 @@
   <div class="info-sub" id="infoMondDatum"></div>
   <div class="info-sub" id="infoGezeitenlage" style="margin-top:4px; font-weight:600;"></div>
 </div>
+</div>
+
+<table id="tabelleHeute" class="tabelle-heute">
+  <thead>
+    <tr><th>Uhrzeit</th><th>Art</th><th>Höhe (cm)</th><th>Tidenhub</th><th>Steig-/Falldauer</th></tr>
+  </thead>
+  <tbody id="tabelleHeuteBody"></tbody>
+</table>
+
+<div class="chart-card">
 
 </div>
 
@@ -1160,6 +1174,48 @@ function befuelleTabelle(daten) {
   });
 }
 
+function befuelleTabelleHeute(daten) {
+  const body = document.getElementById('tabelleHeuteBody');
+  if (!body) return;
+  body.innerHTML = '';
+
+  const heuteStart = new Date();
+  heuteStart.setHours(0, 0, 0, 0);
+  const heuteEnde = new Date(heuteStart);
+  heuteEnde.setDate(heuteEnde.getDate() + 1);
+
+  const heutigeDaten = daten.filter(p => p.zeit >= heuteStart && p.zeit < heuteEnde);
+
+  heutigeDaten.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.className = p.art === 'HW' ? 'hw' : 'nw';
+
+    let hubHtml = '–';
+    if (p.hub !== null && p.hub !== undefined) {
+      const badgeClass = p.hubTyp === 'spring' ? 'hub-spring' : p.hubTyp === 'nipp' ? 'hub-nipp' : '';
+      const badgeIcon = p.hubTyp === 'spring' ? ' 🔺' : p.hubTyp === 'nipp' ? ' 🔻' : '';
+      hubHtml = `<span class="${badgeClass}">${Math.round(p.hub)} cm${badgeIcon}</span>`;
+    }
+
+    let dauerHtml = '–';
+    if (p.dauerMin !== null && p.dauerMin !== undefined) {
+      const std = Math.floor(p.dauerMin / 60);
+      const min = Math.round(p.dauerMin % 60);
+      const label = p.art === 'HW' ? '↑ Steigdauer' : '↓ Falldauer';
+      dauerHtml = `${label}: ${std} Std ${min} Min`;
+    }
+
+    tr.innerHTML = `
+      <td>${formatZeit(p.zeit)}</td>
+      <td class="art">${p.art === 'HW' ? '⬆ Hochwasser' : '⬇ Niedrigwasser'}</td>
+      <td>${Math.round(p.hoehe)} cm</td>
+      <td>${hubHtml}</td>
+      <td>${dauerHtml}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
 
 async function holeUndZeigeDaten(stationKey) {
   setStatus("Lade Daten…");
@@ -1201,6 +1257,7 @@ async function holeUndZeigeDaten(stationKey) {
 
 	zeichneChart(gefiltert.length ? gefiltert : daten, label);
 	befuelleTabelle(gefiltertTabelle.length ? gefiltertTabelle : daten);
+	befuelleTabelleHeute(daten);
 	aktualisiereLiveInfo();
 	aktualisiereGezeitenlage();
 
