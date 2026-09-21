@@ -1091,9 +1091,6 @@ function zeichneTemperaturChart() {
 
   const farben = holeChartFarben();
 
-  const heuteStart = new Date();
-  heuteStart.setHours(0, 0, 0, 0);
-  const anzeigeEnde = new Date(heuteStart);
   const { start: heuteStart, ende: anzeigeEnde } = berechneAnzeigefenster();
 
   chartTemp = new Chart(ctx, {
