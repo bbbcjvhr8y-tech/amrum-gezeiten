@@ -83,8 +83,9 @@ def speichere_ereignisse_supabase(station_id, ereignisse):
 
 
 def lade_ereignisse_supabase(station_id):
-    """Lädt alle bekannten HW/NW-Ereignisse einer Station aus Supabase,
-    im gleichen Format, das das Frontend erwartet."""
+    """Lädt alle bekannten HW/NW-Ereignisse einer Station aus Supabase.
+    Gibt bei einem Verbindungsfehler None zurück (statt leerer Liste),
+    damit wir das von 'wirklich keine Daten vorhanden' unterscheiden können."""
     try:
         ergebnis = supabase_request(
             "GET",
@@ -96,7 +97,7 @@ def lade_ereignisse_supabase(station_id):
         )
     except Exception as e:
         print(f"Supabase-Lesefehler: {e}")
-        return []
+        return None  # 👈 None = Fehler, [] = echte leere Antwort
 
     return [
         {
@@ -106,6 +107,51 @@ def lade_ereignisse_supabase(station_id):
         }
         for r in (ergebnis or [])
     ]
+
+
+@app.route('/api/tide')
+def tide():
+    station_id = request.args.get('id')
+    if not station_id:
+        return jsonify({"error": "Fehlender Parameter 'id'"}), 400
+
+    bsh_url = f"{BSH_BASE}{station_id}/?f=json"
+    frisch = None
+    bsh_fehler = None
+
+    try:
+        req = urllib.request.Request(bsh_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=ssl_context) as response:
+            data = response.read()
+        frisch = json.loads(data)
+    except urllib.error.HTTPError as e:
+        bsh_fehler = f"BSH-API Fehler: {e.reason}"
+    except Exception as e:
+        bsh_fehler = str(e)
+
+    neue_liste = []
+    if frisch is not None:
+        neue_liste = frisch.get("properties", {}).get("high_water_low_water", [])
+        speichere_ereignisse_supabase(station_id, neue_liste)
+        raeume_alte_eintraege_auf_supabase(station_id)
+
+    gemergte_liste = lade_ereignisse_supabase(station_id)
+
+    if gemergte_liste is None:
+        # Supabase nicht erreichbar -> als Fallback einfach die frischen BSH-Daten nutzen
+        print("Supabase nicht erreichbar, nutze frische BSH-Daten ohne Cache-Merge")
+        gemergte_liste = neue_liste
+
+    if not gemergte_liste:
+        if bsh_fehler:
+            return jsonify({"error": bsh_fehler}), 502
+        return jsonify({"properties": {"high_water_low_water": []}})
+
+    antwort = {"properties": {"high_water_low_water": gemergte_liste}}
+    if frisch is not None:
+        antwort["properties"]["forecast_timestamp"] = frisch.get("properties", {}).get("forecast_timestamp")
+
+    return jsonify(antwort)
 
 
 def raeume_alte_eintraege_auf_supabase(station_id, tage=AUFBEWAHRUNG_TAGE):
