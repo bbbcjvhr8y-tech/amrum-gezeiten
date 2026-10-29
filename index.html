@@ -130,6 +130,25 @@
     color: var(--muted-text);
     margin-top: 3px;
   }
+  /* Wind-Leiste */
+  .wind-info {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .wind-info .info-box { cursor: pointer; user-select: none; }
+  .wind-pfeil {
+    display: inline-block;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--blau);
+    transition: transform 0.6s ease;
+  }
+  @media (max-width: 700px) {
+    .wind-info { grid-template-columns: 1fr 1fr; }
+  }
+  
   @media (max-width: 700px) {
     .live-info { grid-template-columns: 1fr; }
   }
@@ -287,6 +306,28 @@
   <div class="info-sub" id="infoMondDatum"></div>
   <div class="info-sub" id="infoGezeitenlage" style="margin-top:4px; font-weight:600;"></div>
 </div>
+</div>
+
+<div class="wind-info" id="windInfo" title="Antippen: Einheit wechseln">
+  <div class="info-box">
+    <div class="info-label">💨 Wind</div>
+    <div class="info-value" id="windAktuell">–</div>
+    <div class="info-sub" id="windZeit"></div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Böen</div>
+    <div class="info-value" id="windBoe">–</div>
+    <div class="info-sub" id="windMax"></div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Ø 10 Min</div>
+    <div class="info-value" id="windMittel">–</div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Richtung</div>
+    <div class="info-value"><span class="wind-pfeil" id="windPfeil">↑</span> <span id="windRichtung">–</span></div>
+    <div class="info-sub" id="windGrad"></div>
+  </div>
 </div>
 
 <table id="tabelleHeute" class="tabelle-heute">
@@ -1295,6 +1336,78 @@ document.getElementById('btnOdde').addEventListener('click', () => {
   holeUndZeigeDaten('odde');
 });
 
+/* ============================================================
+   WIND (Nordwind e.V. über eigenen Proxy /api/wind)
+   ============================================================ */
+const WIND_STATION = "amrum";
+const WIND_EINHEITEN = [
+  { key: 'kn',  label: 'kn' },
+  { key: 'kmh', label: 'km/h' },
+  { key: 'bft', label: 'Bft' },
+  { key: 'ms',  label: 'm/s' }
+];
+let windEinheit = localStorage.getItem('windEinheit') || 'kn';
+let letzteWindDaten = null;
+
+function formatWind(obj) {
+  if (!obj) return '–';
+  const e = WIND_EINHEITEN.find(x => x.key === windEinheit) || WIND_EINHEITEN[0];
+  const wert = obj[e.key];
+  if (wert === undefined || wert === null) return '–';
+  const text = e.key === 'ms' ? wert.toFixed(1) : Math.round(wert);
+  return `${text} ${e.label}`;
+}
+
+function zeigeWind() {
+  const d = letzteWindDaten;
+  const set = (id, t) => { document.getElementById(id).textContent = t; };
+  if (!d) {
+    ['windAktuell', 'windBoe', 'windMittel', 'windRichtung'].forEach(id => set(id, '–'));
+    ['windZeit', 'windMax', 'windGrad'].forEach(id => set(id, ''));
+    set('windZeit', 'nicht verfügbar');
+    return;
+  }
+  set('windAktuell', formatWind(d.wind));
+  set('windBoe', formatWind(d.boe));
+  set('windMittel', formatWind(d.mittel10min));
+  set('windMax', d.maxHeute ? `heute max. ${formatWind(d.maxHeute)}` : '');
+  set('windZeit', d.zeit ? `${formatZeit(new Date(d.zeit))} Uhr${d.veraltet ? ' (veraltet)' : ''}` : '');
+
+  if (d.richtung) {
+    set('windRichtung', d.richtung.kompass);
+    set('windGrad', `${d.richtung.grad}° (Wind aus ${d.richtung.kompass})`);
+    // Pfeil zeigt in die Richtung, in die der Wind weht (Windrichtung = Herkunft)
+    document.getElementById('windPfeil').style.transform = `rotate(${d.richtung.grad + 180}deg)`;
+  } else {
+    set('windRichtung', '–');
+    set('windGrad', '');
+  }
+}
+
+async function aktualisiereWind() {
+  try {
+    const resp = await fetch(`/api/wind?station=${encodeURIComponent(WIND_STATION)}`);
+    if (!resp.ok) throw new Error('Wind-API ' + resp.status);
+    const d = await resp.json();
+    if (d.error) throw new Error(d.error);
+    letzteWindDaten = d;
+  } catch (err) {
+    console.warn('Winddaten konnten nicht geladen werden:', err);
+    // alte Daten behalten, falls vorhanden
+  }
+  zeigeWind();
+}
+
+// Antippen/Klicken wechselt die Einheit (wird gespeichert)
+document.getElementById('windInfo').addEventListener('click', () => {
+  const i = WIND_EINHEITEN.findIndex(x => x.key === windEinheit);
+  windEinheit = WIND_EINHEITEN[(i + 1) % WIND_EINHEITEN.length].key;
+  localStorage.setItem('windEinheit', windEinheit);
+  zeigeWind();
+});
+
+aktualisiereWind();
+setInterval(aktualisiereWind, 2 * 60 * 1000);
 // Countdown + Jetzt-Linie alle 30 Sekunden aktualisieren
 setInterval(() => {
   aktualisiereLiveInfo();

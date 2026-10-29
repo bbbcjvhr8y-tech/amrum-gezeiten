@@ -4,6 +4,9 @@ import urllib.parse
 import ssl
 import json
 import os
+import base64
+import re
+import time
 from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -168,51 +171,104 @@ def raeume_alte_eintraege_auf_supabase(station_id, tage=AUFBEWAHRUNG_TAGE):
     except Exception as e:
         print(f"Supabase-Aufräumfehler: {e}")
 
+# ==========================================================
+# Winddaten (Nordwind e.V.)
+# ==========================================================
+NORDWIND_URL = "https://www.nordwind-ev.de/werte/werteHTML5.php"
+NORDWIND_TOKEN = os.environ.get("NORDWIND_TOKEN")
+WIND_CACHE_SEKUNDEN = 60
+_wind_cache = {}  # station -> (zeitstempel, daten)
 
+KOMPASS = ["N", "NNO", "NO", "ONO", "O", "OSO", "SO", "SSO",
+           "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+
+def mph_umrechnen(mph):
+    """Rohwert (mph) -> alle gängigen Einheiten."""
+    if mph is None:
+        return None
+    ms = mph * 0.44704
+    return {
+        "ms": round(ms, 1),
+        "kmh": round(mph * 1.609344, 1),
+        "kn": round(mph * 0.86897699263671, 1),
+        "bft": min(12, round((ms ** 0.694) * 1.102)),
+    }
+
+
+def zahl(werte, key):
+    try:
+        return float(werte[key])
+    except (KeyError, ValueError):
+        return None
+
+
+def parse_nordwind(text):
+    """Base64 dekodieren und 'name,wert;name,wert;...' in ein Dict umwandeln."""
+    text = text.strip()
+    text += "=" * (-len(text) % 4)  # fehlendes Padding auffüllen
+    roh = base64.b64decode(text).decode("utf-8", errors="replace")
+    werte = {}
+    for teil in roh.split(";"):
+        if "," in teil:
+            k, v = teil.split(",", 1)
+            werte[k.strip()] = v.strip()
+    return werte
+
+
+@app.route('/api/wind')
+def wind():
+    station = request.args.get('station', 'amrum')
+    if not re.fullmatch(r"[a-z0-9_-]{1,40}", station):
+        return jsonify({"error": "Ungültiger Stationsname"}), 400
+    if not NORDWIND_TOKEN:
+        return jsonify({"error": "NORDWIND_TOKEN ist nicht gesetzt"}), 503
+
+    jetzt = time.time()
+    cached = _wind_cache.get(station)
+    if cached and jetzt - cached[0] < WIND_CACHE_SEKUNDEN:
+        return jsonify(cached[1])
+
+    query = urllib.parse.urlencode({"station": station, "s": NORDWIND_TOKEN})
+    try:
+        req = urllib.request.Request(f"{NORDWIND_URL}?{query}",
+                                     headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = resp.read().decode("ascii", errors="ignore")
+        if text.startswith("relo"):
+            raise RuntimeError("Nordwind: Token ungültig oder abgelaufen")
+        w = parse_nordwind(text)
+
+        wind_mph = zahl(w, "windspeed")
+        if wind_mph is not None and wind_mph > 125:   # Ausreißer wie im Original
+            wind_mph = None
+        grad = zahl(w, "windrichtung")
+        zeit = zahl(w, "time")
+
+        daten = {
+            "station": station,
+            "zeit": datetime.fromtimestamp(zeit, timezone.utc).isoformat() if zeit else None,
+            "richtung": None if grad is None else {
+                "grad": round(grad),
+                "kompass": KOMPASS[round((grad % 360) / 22.5) % 16],
+            },
+            "wind": mph_umrechnen(wind_mph),
+            "boe": mph_umrechnen(zahl(w, "windboe")),
+            "mittel10min": mph_umrechnen(zahl(w, "windspeed_avg_10min")),
+            "maxHeute": mph_umrechnen(zahl(w, "windspeed_max_day")),
+        }
+        _wind_cache[station] = (jetzt, daten)
+        return jsonify(daten)
+
+    except Exception as e:
+        print(f"Wind-Fehler: {e}")
+        if cached:  # lieber alte Daten als gar keine
+            return jsonify({**cached[1], "veraltet": True})
+        return jsonify({"error": str(e)}), 502
+        
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
-
-
-@app.route('/api/tide')
-def tide():
-    station_id = request.args.get('id')
-    if not station_id:
-        return jsonify({"error": "Fehlender Parameter 'id'"}), 400
-
-    bsh_url = f"{BSH_BASE}{station_id}/?f=json"
-    frisch = None
-    bsh_fehler = None
-
-    try:
-        req = urllib.request.Request(bsh_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10, context=ssl_context) as response:
-            data = response.read()
-        frisch = json.loads(data)
-    except urllib.error.HTTPError as e:
-        bsh_fehler = f"BSH-API Fehler: {e.reason}"
-    except Exception as e:
-        bsh_fehler = str(e)
-
-    # Frische Ereignisse (falls vorhanden) dauerhaft in Supabase sichern
-    if frisch is not None:
-        neue_liste = frisch.get("properties", {}).get("high_water_low_water", [])
-        speichere_ereignisse_supabase(station_id, neue_liste)
-        raeume_alte_eintraege_auf_supabase(station_id)
-
-    # Immer den komplett gemergten Datenbestand aus Supabase lesen
-    gemergte_liste = lade_ereignisse_supabase(station_id)
-
-    if not gemergte_liste:
-        if bsh_fehler:
-            return jsonify({"error": bsh_fehler}), 502
-        return jsonify({"properties": {"high_water_low_water": []}})
-
-    antwort = {"properties": {"high_water_low_water": gemergte_liste}}
-    if frisch is not None:
-        antwort["properties"]["forecast_timestamp"] = frisch.get("properties", {}).get("forecast_timestamp")
-
-    return jsonify(antwort)
 
 
 @app.route('/api/pegel')
